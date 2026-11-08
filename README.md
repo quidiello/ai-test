@@ -55,10 +55,12 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 | Endpoints sin procesamiento | 100 % | < 1 ms | — | — | — |
 | Procesamiento síncrono | 100 % | 2,3 s | 18 % (200 de 1142) | 48 % | 1,00 |
 | Limpieza y validación de la respuesta | 100 % | 2,3 s | 18 % (204 de 1143) | 9 % | 1,00 |
+| Procesamiento en segundo plano | 100 % | 0,5 ms | 7 % (203 de 2749) | 11 % | 1,00 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
 - Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
 - Con la limpieza, las respuestas de la IA que fallan son solo las negativas, que no contienen datos. Las enviadas no suben porque el proveedor de notificaciones acepta unas 50 cada 10 s, y el resto se rechaza por límite de peticiones (73 %).
+- En segundo plano, `/process` responde sin esperar a la IA y cada usuario del test completa más peticiones en el mismo tiempo. Los envíos aceptados siguen siendo unos 200, así que el porcentaje baja: el 82 % se rechaza por límite de peticiones. Las enviadas se cuentan cuando termina el procesamiento pendiente, unos segundos después del test.
 
 ## Stack
 
@@ -102,7 +104,7 @@ app/
 | Método y ruta                    | Respuesta                                    |
 | -------------------------------- | -------------------------------------------- |
 | `POST /v1/requests`              | `201 { id }`                                 |
-| `POST /v1/requests/{id}/process` | `200 { id, status }`                         |
+| `POST /v1/requests/{id}/process` | `202 { id, status }`                         |
 | `GET /v1/requests/{id}`          | `200 { id, status }`                         |
 
 `status` es `queued`, `processing`, `sent` o `failed`. Los errores devuelven `{ error }`: 400 si el JSON está mal formado, 422 si `user_input` falta o está vacío y 404 si la petición no existe.
@@ -112,6 +114,8 @@ app/
 - **Peticiones en memoria.** El enunciado no pide persistencia y el servicio corre en una sola instancia. El almacenamiento queda detrás de una clase propia, así que cambiarlo por una base de datos no afecta a las rutas.
 - **422 para entradas inválidas**, el código que devolvería FastAPI con el mismo contrato, y 400 solo cuando el cuerpo no es JSON.
 - **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
+- **`/process` responde 202 y el procesamiento sigue en segundo plano.** La IA tarda segundos en responder; el estado se consulta con `GET /v1/requests/{id}`.
+- **Una petición solo se procesa una vez.** `/process` solo la pone en marcha si está en `queued`; si no, devuelve su estado actual. Así una llamada repetida no envía la notificación dos veces.
 - **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
 - **La respuesta de la IA se limpia y se valida antes de enviar nada**, en pasos separados que se prueban por separado:
   1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.

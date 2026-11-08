@@ -9,11 +9,17 @@ export interface ProcessDeps {
   notifier: NotifyClient
 }
 
+export function startProcessing(deps: ProcessDeps, id: string): void {
+  if (deps.store.get(id)?.status !== 'queued') return
+
+  deps.store.updateStatus(id, 'processing')
+  processRequest(deps, id).catch((err) => console.error(`Request ${id} crashed`, err))
+}
+
 export async function processRequest({ store, ai, notifier }: ProcessDeps, id: string): Promise<void> {
   const request = store.get(id)
   if (!request) return
 
-  store.updateStatus(id, 'processing')
   try {
     const notification = await extractNotification(ai, request.userInput)
     await notifier.send(notification)

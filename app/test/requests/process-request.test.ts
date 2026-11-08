@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProviderError } from '../../src/provider/provider-error.js'
-import { processRequest } from '../../src/requests/process-request.js'
+import { processRequest, startProcessing } from '../../src/requests/process-request.js'
 import { RequestStore } from '../../src/requests/store.js'
-import { failingAi, failingNotifier, fakeAi, fakeNotifier, VALID_EXTRACTION } from '../fakes.js'
+import { failingAi, failingNotifier, fakeAi, fakeNotifier, pendingAi, VALID_EXTRACTION } from '../fakes.js'
 
 let store: RequestStore
 
@@ -55,5 +55,34 @@ describe('processRequest', () => {
     await processRequest({ store, ai: fakeAi(VALID_EXTRACTION), notifier: failingNotifier(new ProviderError('notify', 429)) }, id)
 
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('notify responded 429'))
+  })
+})
+
+describe('startProcessing', () => {
+  it('marks a queued request as processing before the AI responds', () => {
+    const { id } = store.create('Manda un mail a feda@test.com diciendo hola')
+
+    startProcessing({ store, ai: pendingAi(), notifier: fakeNotifier() }, id)
+
+    expect(store.get(id)?.status).toBe('processing')
+  })
+
+  it('finishes the request in the background', async () => {
+    const { id } = store.create('Manda un mail a feda@test.com diciendo hola')
+
+    startProcessing({ store, ai: fakeAi(VALID_EXTRACTION), notifier: fakeNotifier() }, id)
+
+    await vi.waitFor(() => expect(store.get(id)?.status).toBe('sent'))
+  })
+
+  it('ignores a request that is no longer queued', () => {
+    const { id } = store.create('Manda un mail a feda@test.com diciendo hola')
+    store.updateStatus(id, 'sent')
+    const ai = fakeAi(VALID_EXTRACTION)
+
+    startProcessing({ store, ai, notifier: fakeNotifier() }, id)
+
+    expect(ai.complete).not.toHaveBeenCalled()
+    expect(store.get(id)?.status).toBe('sent')
   })
 })

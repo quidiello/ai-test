@@ -9,6 +9,10 @@ export function fakeAi(...responses: string[]) {
   return { complete } satisfies AiClient
 }
 
+export function pendingAi() {
+  return { complete: vi.fn(() => new Promise<string>(() => {})) } satisfies AiClient
+}
+
 export function failingAi(error: Error) {
   return { complete: vi.fn().mockRejectedValue(error) } satisfies AiClient
 }

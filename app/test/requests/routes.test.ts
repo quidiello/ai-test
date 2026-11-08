@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../src/app.js'
 import { RequestStore } from '../../src/requests/store.js'
-import { fakeAi, fakeNotifier, VALID_EXTRACTION } from '../fakes.js'
+import { fakeAi, fakeNotifier, pendingAi, VALID_EXTRACTION } from '../fakes.js'
 
 let app: ReturnType<typeof createApp>
 
@@ -95,13 +95,46 @@ describe('GET /v1/requests/:id', () => {
 })
 
 describe('POST /v1/requests/:id/process', () => {
-  it('processes an existing request and returns its final status with 200', async () => {
+  it('answers 202 with processing before the AI responds', async () => {
+    app = createApp({ store: new RequestStore(), ai: pendingAi(), notifier: fakeNotifier() })
     const id = await createRequest()
 
     const res = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
 
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ id, status: 'sent' })
+    expect(res.status).toBe(202)
+    expect(await res.json()).toEqual({ id, status: 'processing' })
+  })
+
+  it('reports processing while the request is in progress', async () => {
+    app = createApp({ store: new RequestStore(), ai: pendingAi(), notifier: fakeNotifier() })
+    const id = await createRequest()
+    await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+
+    const res = await app.request(`/v1/requests/${id}`)
+
+    expect(await res.json()).toEqual({ id, status: 'processing' })
+  })
+
+  it('ends as sent once processing finishes', async () => {
+    const id = await createRequest()
+    await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+
+    await vi.waitFor(async () => {
+      const res = await app.request(`/v1/requests/${id}`)
+      expect(await res.json()).toEqual({ id, status: 'sent' })
+    })
+  })
+
+  it('does not process a request twice', async () => {
+    const ai = fakeAi(VALID_EXTRACTION, VALID_EXTRACTION)
+    app = createApp({ store: new RequestStore(), ai, notifier: fakeNotifier() })
+    const id = await createRequest()
+
+    await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+    const second = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+
+    expect(second.status).toBe(202)
+    expect(ai.complete).toHaveBeenCalledTimes(1)
   })
 
   it('returns 404 when processing an unknown request id', async () => {
