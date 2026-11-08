@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { loadConfig } from './config.js'
+import { NotificationDispatcher } from './notifications/dispatcher.js'
 import { createAiClient } from './provider/ai-client.js'
 import { createNotifyClient } from './provider/notify-client.js'
 import { RequestStore } from './requests/store.js'
@@ -11,7 +12,7 @@ const config = loadConfig()
 const app = createApp({
   store: new RequestStore(),
   ai: createAiClient(config.provider),
-  notifier: createNotifyClient(config.provider),
+  notifier: new NotificationDispatcher(createNotifyClient(config.provider), config.notify),
 })
 
 serve({ fetch: app.fetch, port }, (info) => {

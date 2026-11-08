@@ -40,6 +40,12 @@ docker compose run --rm load-test
 
 Los resultados se ven en [Grafana](http://localhost:3000/d/ia-performance-scorecard/).
 
+Al terminar el test quedan notificaciones en cola, que se siguen enviando durante varios minutos al ritmo que acepta el proveedor. Para comparar ejecuciones, conviene reiniciar antes el servicio, así la cola de la ejecución anterior no ocupa el límite del proveedor:
+
+```bash
+docker compose restart app
+```
+
 ### Evolución
 
 Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver la tendencia, no como cifras exactas.
@@ -56,11 +62,13 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 | Procesamiento síncrono | 100 % | 2,3 s | 18 % (200 de 1142) | 48 % | 1,00 |
 | Limpieza y validación de la respuesta | 100 % | 2,3 s | 18 % (204 de 1143) | 9 % | 1,00 |
 | Procesamiento en segundo plano | 100 % | 0,5 ms | 7 % (203 de 2749) | 11 % | 1,00 |
+| Cola de envíos con límite de ritmo | 100 % | 0,6 ms | 91 % (2488 de 2749) | 9 % | 1,00 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
 - Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
 - Con la limpieza, las respuestas de la IA que fallan son solo las negativas, que no contienen datos. Las enviadas no suben porque el proveedor de notificaciones acepta unas 50 cada 10 s, y el resto se rechaza por límite de peticiones (73 %).
 - En segundo plano, `/process` responde sin esperar a la IA y cada usuario del test completa más peticiones en el mismo tiempo. Los envíos aceptados siguen siendo unos 200, así que el porcentaje baja: el 82 % se rechaza por límite de peticiones. Las enviadas se cuentan cuando termina el procesamiento pendiente, unos segundos después del test.
+- Con la cola, todas las peticiones con una respuesta de la IA utilizable acaban enviadas; solo fallan las negativas. Los envíos salen al ritmo del proveedor, así que la cola tarda unos 8 minutos en vaciarse después del test. Hubo 6 rechazos por límite de peticiones, que se enviaron al reintentarlos.
 
 ## Stack
 
@@ -72,10 +80,11 @@ El enunciado pide FastAPI; la empresa dejó elegir el lenguaje, y el servicio re
 
 Por variables de entorno, en [app/.env](app/.env). `npm run dev`, `npm start` y la imagen de Docker lo cargan al arrancar. Si falta alguna variable, el servicio no arranca e indica cuál.
 
-| Variable           | Descripción                                           |
-| ------------------ | ----------------------------------------------------- |
-| `PROVIDER_URL`     | URL del motor de IA y del proveedor de notificaciones |
-| `PROVIDER_API_KEY` | API key del proveedor                                 |
+| Variable                 | Descripción                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `PROVIDER_URL`           | URL del motor de IA y del proveedor de notificaciones |
+| `PROVIDER_API_KEY`       | API key del proveedor                                 |
+| `NOTIFY_RATE_PER_SECOND` | Envíos por segundo al proveedor de notificaciones     |
 
 > **El `.env` está en el repositorio a propósito**, para que el servicio funcione sin pasos previos y con el `docker-compose.yaml` del enunciado sin modificarlo. Solo contiene la API key del entorno de pruebas que da el enunciado. En un proyecto real no se versionaría ni se incluiría en la imagen: las variables se pasarían al desplegar y la key vendría de un gestor de secretos.
 
@@ -95,6 +104,7 @@ app/
   src/extraction/fields.ts            normaliza los nombres de los campos
   src/extraction/recipient.ts         reconoce emails y teléfonos
   src/notifications/notification.ts   tipo de la notificación
+  src/notifications/dispatcher.ts     cola de envíos con límite de ritmo y reintentos
   src/provider/                       clientes HTTP del motor de IA y de notificaciones
   test/                               tests
 ```
@@ -117,6 +127,8 @@ app/
 - **`/process` responde 202 y el procesamiento sigue en segundo plano.** La IA tarda segundos en responder; el estado se consulta con `GET /v1/requests/{id}`.
 - **Una petición solo se procesa una vez.** `/process` solo la pone en marcha si está en `queued`; si no, devuelve su estado actual. Así una llamada repetida no envía la notificación dos veces.
 - **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
+- **Las notificaciones salen de una cola al ritmo que acepta el proveedor.** El proveedor admite 50 envíos cada 10 s y solo de uno en uno, así que la cola envía uno cada 200 ms (`NOTIFY_RATE_PER_SECOND`). Mientras espera turno, la petición sigue en `processing`.
+- **Los envíos rechazados se reintentan si el error puede ser pasajero:** límite de peticiones (429), error del proveedor (5xx) o fallo de conexión. Cada intento espera el doble que el anterior, con una parte aleatoria para que los reintentos no lleguen todos a la vez, y pasa por delante de los que esperan. Tras 5 intentos, o con cualquier otro error, la petición queda en `failed`.
 - **La respuesta de la IA se limpia y se valida antes de enviar nada**, en pasos separados que se prueban por separado:
   1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.
   2. Se repara el JSON mal formado de las formas que produce el motor: cortado con `...`, con comillas simples o con claves sin comillas. Las cadenas no se modifican.
@@ -129,3 +141,9 @@ app/
 - **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
 - **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
 - **La configuración es obligatoria y se comprueba al arrancar.**
+
+## Mejoras posibles
+
+- **Cola persistente y con tamaño máximo.** Ahora vive en memoria: si el servicio se reinicia, las notificaciones pendientes se pierden, y con tráfico sostenido por encima de lo que acepta el proveedor crece sin límite. Con una cola externa (por ejemplo, Redis o un broker de mensajes) sobreviviría a reinicios y se podrían rechazar peticiones nuevas al llenarse.
+- **Envío en bloque** si el proveedor lo ofreciera y su límite contara llamadas, para enviar más notificaciones por segundo.
+- **Reparación del JSON más general.** Cubre las formas que produce el motor actual; otras, como un apóstrofo dentro de un valor entre comillas simples, no se reparan.
