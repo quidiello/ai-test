@@ -1,13 +1,14 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import type { RequestStore } from './store.js'
+import { processRequest, type ProcessDeps } from './process-request.js'
 
 const createRequestSchema = z.object({
   user_input: z.string().trim().min(1),
 })
 
-export function requestRoutes(store: RequestStore) {
+export function requestRoutes(deps: ProcessDeps) {
+  const { store } = deps
   const routes = new Hono()
 
   routes.post(
@@ -30,10 +31,12 @@ export function requestRoutes(store: RequestStore) {
     return c.json({ id: request.id, status: request.status })
   })
 
-  routes.post('/:id/process', (c) => {
+  routes.post('/:id/process', async (c) => {
     const request = store.get(c.req.param('id'))
     if (!request) return c.json({ error: 'Request not found' }, 404)
-    return c.json({ id: request.id, status: request.status }, 202)
+
+    await processRequest(deps, request.id)
+    return c.json({ id: request.id, status: request.status })
   })
 
   return routes

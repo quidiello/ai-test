@@ -44,11 +44,18 @@ Los resultados se ven en [Grafana](http://localhost:3000/d/ia-performance-scorec
 
 Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver la tendencia, no como cifras exactas.
 
-| Paso | Checks OK | `/process` (media) |
-| ---- | --------- | ------------------ |
-| Endpoints sin procesamiento | 100 % | < 1 ms |
+- **Checks OK:** comprobaciones de k6 que pasan.
+- **`/process`:** tiempo medio de respuesta. El scorecard lo marca en verde por debajo de 400 ms.
+- **Enviadas:** peticiones que acaban en `sent`, sobre las procesadas durante el test.
+- **Llamadas a la IA:** llamadas a `/v1/ai/extract` por cada `/process`. El scorecard la marca en verde por debajo de 1,5.
+
+| Paso | Checks OK | `/process` | Enviadas | Llamadas a la IA |
+| ---- | --------- | ---------- | -------- | ---------------- |
+| Endpoints sin procesamiento | 100 % | < 1 ms | — | — |
+| Procesamiento síncrono | 100 % | 2,3 s | 18 % (200 de 1142) | 1,00 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
+- Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
 
 ## Stack
 
@@ -56,15 +63,31 @@ Node.js 26 · TypeScript · Hono · Zod · Vitest.
 
 El enunciado pide FastAPI; la empresa dejó elegir el lenguaje, y el servicio respeta el mismo contrato HTTP en el puerto 5000.
 
+## Configuración
+
+Por variables de entorno, en [app/.env](app/.env). `npm run dev`, `npm start` y la imagen de Docker lo cargan al arrancar. Si falta alguna variable, el servicio no arranca e indica cuál.
+
+| Variable           | Descripción                                           |
+| ------------------ | ----------------------------------------------------- |
+| `PROVIDER_URL`     | URL del motor de IA y del proveedor de notificaciones |
+| `PROVIDER_API_KEY` | API key del proveedor                                 |
+
+> **El `.env` está en el repositorio a propósito**, para que el servicio funcione sin pasos previos y con el `docker-compose.yaml` del enunciado sin modificarlo. Solo contiene la API key del entorno de pruebas que da el enunciado. En un proyecto real no se versionaría ni se incluiría en la imagen: las variables se pasarían al desplegar y la key vendría de un gestor de secretos.
+
 ## Estructura
 
 ```
 app/
-  src/app.ts                 composición de la app y manejo de errores
-  src/server.ts              arranque del servidor HTTP
-  src/requests/routes.ts     endpoints de /v1/requests
-  src/requests/store.ts      almacenamiento de las peticiones
-  test/                      tests
+  src/app.ts                          composición de la app y manejo de errores
+  src/server.ts                       arranque del servidor HTTP
+  src/config.ts                       configuración leída del entorno
+  src/requests/routes.ts              endpoints de /v1/requests
+  src/requests/store.ts               almacenamiento de las peticiones
+  src/requests/process-request.ts     procesamiento: extracción, envío y estado
+  src/extraction/extractor.ts         prompt y validación de la respuesta de la IA
+  src/notifications/notification.ts   esquema de la notificación
+  src/provider/                       clientes HTTP del motor de IA y de notificaciones
+  test/                               tests
 ```
 
 ## API
@@ -72,7 +95,7 @@ app/
 | Método y ruta                    | Respuesta                                    |
 | -------------------------------- | -------------------------------------------- |
 | `POST /v1/requests`              | `201 { id }`                                 |
-| `POST /v1/requests/{id}/process` | `202 { id, status }`                         |
+| `POST /v1/requests/{id}/process` | `200 { id, status }`                         |
 | `GET /v1/requests/{id}`          | `200 { id, status }`                         |
 
 `status` es `queued`, `processing`, `sent` o `failed`. Los errores devuelven `{ error }`: 400 si el JSON está mal formado, 422 si `user_input` falta o está vacío y 404 si la petición no existe.
@@ -81,4 +104,8 @@ app/
 
 - **Peticiones en memoria.** El enunciado no pide persistencia y el servicio corre en una sola instancia. El almacenamiento queda detrás de una clase propia, así que cambiarlo por una base de datos no afecta a las rutas.
 - **422 para entradas inválidas**, el código que devolvería FastAPI con el mismo contrato, y 400 solo cuando el cuerpo no es JSON.
-- **La app se construye con su almacenamiento como parámetro** (`createApp(store)`), para que cada test empiece con uno vacío.
+- **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
+- **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
+- **La respuesta de la IA se valida con un esquema** (`to`, `message` y `type` `email` o `sms`) antes de enviar nada. Si no lo cumple, la petición queda en `failed` y el motivo en el log.
+- **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
+- **La configuración es obligatoria y se comprueba al arrancar.**

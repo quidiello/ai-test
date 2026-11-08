@@ -10,4 +10,4 @@ RUN npm run build
 
 EXPOSE 5000
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "--env-file=.env", "dist/server.js"]

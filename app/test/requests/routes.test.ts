@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { createApp } from '../src/app.js'
-import { RequestStore } from '../src/requests/store.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createApp } from '../../src/app.js'
+import { RequestStore } from '../../src/requests/store.js'
+import { fakeAi, fakeNotifier, VALID_EXTRACTION } from '../fakes.js'
 
 let app: ReturnType<typeof createApp>
 
 beforeEach(() => {
-  app = createApp(new RequestStore())
+  app = createApp({ store: new RequestStore(), ai: fakeAi(VALID_EXTRACTION), notifier: fakeNotifier() })
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 function postJson(path: string, body: unknown) {
@@ -93,13 +95,13 @@ describe('GET /v1/requests/:id', () => {
 })
 
 describe('POST /v1/requests/:id/process', () => {
-  it('accepts processing of an existing request with 202', async () => {
+  it('processes an existing request and returns its final status with 200', async () => {
     const id = await createRequest()
 
     const res = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
 
-    expect(res.status).toBe(202)
-    expect(await res.json()).toEqual({ id, status: expect.any(String) })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ id, status: 'sent' })
   })
 
   it('returns 404 when processing an unknown request id', async () => {

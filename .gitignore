@@ -11,6 +11,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!app/.env
 downloads/
 eggs/
 .eggs/
@@ -210,3 +211,4 @@ __marimo__/
 # Node
 node_modules/
 dist/
+!app/.env
