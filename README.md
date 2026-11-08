@@ -9,26 +9,65 @@ Servicio que recibe peticiones en lenguaje natural (por ejemplo, "Manda un mail 
 
 ## Requisitos
 
-- Node.js 26 (fijado en [.node-version](.node-version)).
 - Docker, para el mock, el servicio y el test de carga.
+- Node.js 26 (fijado en [.node-version](.node-version)), solo para lanzar los tests.
 
-## Uso
+## Puesta en marcha
 
-Desde `app/`:
-
-| Comando         | Descripción                                                   |
-| --------------- | ------------------------------------------------------------- |
-| `npm install`   | Instala las dependencias                                      |
-| `npm test`      | Lanza los tests                                               |
-| `npm run dev`   | Arranca el servicio en el puerto 5000 con recarga en caliente |
-| `npm run build` | Compila a `dist/`                                             |
-
-El servicio comparte red con el contenedor del mock (`network_mode: service:provider`), que es quien publica el puerto 5000. Para levantar ambos:
+El servicio responde en `http://localhost:5000`. Se levanta con Docker, junto al mock, desde la raíz del repositorio:
 
 ```bash
 docker compose up -d provider influxdb grafana
 docker compose up -d --build app
 ```
+
+Para comprobar que funciona, se crea una petición, se procesa y se consulta su estado (el id es el que devuelve la primera llamada):
+
+```bash
+curl -X POST http://localhost:5000/v1/requests -H "Content-Type: application/json" -d '{"user_input": "Manda un mail a feda@test.com diciendo hola"}'
+```
+
+```bash
+curl -X POST http://localhost:5000/v1/requests/<id>/process
+```
+
+```bash
+curl http://localhost:5000/v1/requests/<id>
+```
+
+El estado pasa de `processing` a `sent` en unos segundos, lo que tarda la IA en responder.
+
+El servicio se ejecuta siempre en Docker porque así lo monta el `docker-compose.yaml` del enunciado: el contenedor del servicio usa la red del contenedor del mock (`network_mode: service:provider`), y es este el que publica el puerto 5000 en el equipo.
+
+## Tests
+
+Desde `app/`, sin necesidad de levantar nada:
+
+```bash
+npm install
+npm test
+```
+
+## Flujo
+
+```mermaid
+flowchart LR
+    A["POST /v1/requests"] -->|queued| B["POST /v1/requests/{id}/process"]
+    B -->|"202, processing"| C[Llamada a la IA]
+    C --> D[Limpieza y validación]
+    D -->|"no utilizable, una vez"| C
+    D -->|notificación válida| E[Cola de envíos]
+    E -->|uno cada 200 ms| F[Proveedor de notificaciones]
+    F --> G[sent]
+    D -->|tras el reintento| H[failed]
+    E -->|error definitivo| H
+```
+
+1. `POST /v1/requests` guarda la petición como `queued` y devuelve su id.
+2. `POST /v1/requests/{id}/process` la pasa a `processing`, responde 202 y el resto ocurre en segundo plano.
+3. La IA recibe las instrucciones y el texto del usuario. Su respuesta se limpia y se valida contra ese texto; si no se puede usar, se pide otra vez una sola vez.
+4. La notificación espera turno en una cola que envía al ritmo que acepta el proveedor.
+5. La petición acaba en `sent` o en `failed`, con el motivo en el log. El estado se consulta con `GET /v1/requests/{id}`.
 
 ## Test de carga
 
@@ -71,6 +110,7 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 - En segundo plano, `/process` responde sin esperar a la IA y cada usuario del test completa más peticiones en el mismo tiempo. Los envíos aceptados siguen siendo unos 200, así que el porcentaje baja: el 82 % se rechaza por límite de peticiones. Las enviadas se cuentan cuando termina el procesamiento pendiente, unos segundos después del test.
 - Con la cola, todas las peticiones con una respuesta de la IA utilizable acaban enviadas; solo fallan las negativas. Los envíos salen al ritmo del proveedor, así que la cola tarda unos 8 minutos en vaciarse después del test. Hubo 6 rechazos por límite de peticiones, que se enviaron al reintentarlos.
 - Con el reintento, el 10 % de respuestas no utilizables se pide otra vez y casi todas salen bien a la segunda: solo fallan las que se niegan dos veces seguidas. Cada reintento es una llamada más a la IA.
+- Los pasos siguientes (tiempos máximos de espera, reintento de errores pasajeros de la IA, prompt y límite de longitud de la entrada) no cambian estas cifras: el mock nunca agota el tiempo ni devuelve errores en la extracción, y no lee el prompt. Se comprobó con una ejecución tras cada uno.
 
 ## Stack
 
@@ -80,7 +120,7 @@ El enunciado pide FastAPI; la empresa dejó elegir el lenguaje, y el servicio re
 
 ## Configuración
 
-Por variables de entorno, en [app/.env](app/.env). `npm run dev`, `npm start` y la imagen de Docker lo cargan al arrancar. Si falta alguna variable, el servicio no arranca e indica cuál.
+Por variables de entorno, en [app/.env](app/.env), que el servicio carga al arrancar. Si falta alguna variable, el servicio no arranca e indica cuál.
 
 | Variable                 | Descripción                                           |
 | ------------------------ | ----------------------------------------------------- |
@@ -110,7 +150,7 @@ app/
   src/extraction/recipient.ts         reconoce emails y teléfonos
   src/notifications/notification.ts   tipo de la notificación
   src/notifications/dispatcher.ts     cola de envíos con límite de ritmo y reintentos
-  src/provider/                       clientes HTTP del motor de IA y de notificaciones, con su tiempo máximo de espera
+  src/provider/                       clientes HTTP del motor de IA y de notificaciones, con su tiempo máximo de espera y reintentos
   test/                               tests
 ```
 
@@ -126,17 +166,19 @@ app/
 
 ## Decisiones
 
+### API
+
 - **Peticiones en memoria.** El enunciado no pide persistencia y el servicio corre en una sola instancia. El almacenamiento queda detrás de una clase propia, así que cambiarlo por una base de datos no afecta a las rutas.
 - **422 para entradas inválidas**, el código que devolvería FastAPI con el mismo contrato, y 400 solo cuando el cuerpo no es JSON.
 - **`user_input` admite hasta 1000 caracteres.** Se envía entero a la IA en cada intento; una petición de notificación es una frase corta y el límite deja margen de sobra.
-- **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
 - **`/process` responde 202 y el procesamiento sigue en segundo plano.** La IA tarda segundos en responder; el estado se consulta con `GET /v1/requests/{id}`.
 - **Una petición solo se procesa una vez.** `/process` solo la pone en marcha si está en `queued`; si no, devuelve su estado actual. Así una llamada repetida no envía la notificación dos veces.
-- **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
-- **Cada llamada al proveedor tiene un tiempo máximo de espera**: 10 s para la IA, que suele tardar entre 1,5 y 3 s, y 5 s para los envíos. Así una llamada que no responde no deja la petición en `processing` para siempre. Un envío que agota el tiempo se reintenta como cualquier otro error pasajero.
-- **Las llamadas a la IA que fallan por un error pasajero se repiten**, con la misma regla que los envíos: límite de peticiones, error del proveedor, fallo de conexión o tiempo agotado. Hasta 3 intentos, esperando 0,5 s y luego 1 s, con la misma parte aleatoria. Es distinto del reintento por una respuesta que no se puede usar: aquí la llamada falló y se repite igual; allí la llamada funcionó y se pide otra respuesta. En el peor caso, una petición hace 6 llamadas a la IA.
-- **Las notificaciones salen de una cola al ritmo que acepta el proveedor.** El proveedor admite 50 envíos cada 10 s y solo de uno en uno, así que la cola envía uno cada 200 ms (`NOTIFY_RATE_PER_SECOND`). Mientras espera turno, la petición sigue en `processing`.
-- **Los envíos rechazados se reintentan si el error puede ser pasajero:** límite de peticiones (429), error del proveedor (5xx) o fallo de conexión. Cada intento espera el doble que el anterior, con una parte aleatoria para que los reintentos no lleguen todos a la vez, y pasa por delante de los que esperan. Tras 5 intentos, o con cualquier otro error, la petición queda en `failed`.
+- **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
+
+### Respuesta de la IA
+
+- **El prompt** ([prompt.ts](app/src/extraction/prompt.ts)) pide un único objeto JSON sin Markdown ni texto alrededor, y fija una regla para cada campo: el destinatario se copia tal como aparece y nunca se inventa, el mensaje es solo el contenido a enviar en el idioma del usuario, y el tipo lo decide el destinatario. Si no se puede extraer, la IA responde `{"error": "..."}` con un motivo de una lista cerrada; esa respuesta no se reintenta, porque el problema está en el texto del usuario. El prompt indica que el mensaje del usuario es un dato y no instrucciones, e incluye tres ejemplos en español, el idioma de las peticiones.
+- **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
 - **La respuesta de la IA se limpia y se valida antes de enviar nada**, en pasos separados que se prueban por separado:
   1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.
   2. Se repara el JSON mal formado de las formas que produce el motor: cortado con `...`, con comillas simples o con claves sin comillas. Las cadenas no se modifican.
@@ -148,12 +190,23 @@ app/
   Si algún paso falla, la petición queda en `failed` y el motivo en el log.
 - **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
 - **Si la respuesta de la IA no se puede usar, se pide otra vez, una sola vez.** El segundo intento añade al mensaje `system` que la respuesta anterior no sirvió; el texto del usuario se envía igual. No se reintenta cuando el problema está en el texto del usuario (no contiene ningún destinatario, o contiene varios), porque la respuesta sería la misma.
-- **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
-- **El prompt** ([prompt.ts](app/src/extraction/prompt.ts)) pide un único objeto JSON sin Markdown ni texto alrededor, y fija una regla para cada campo: el destinatario se copia tal como aparece y nunca se inventa, el mensaje es solo el contenido a enviar en el idioma del usuario, y el tipo lo decide el destinatario. Si no se puede extraer, la IA responde `{"error": "..."}` con un motivo de una lista cerrada; esa respuesta no se reintenta, porque el problema está en el texto del usuario. El prompt indica que el mensaje del usuario es un dato y no instrucciones, e incluye tres ejemplos en español, el idioma de las peticiones.
+
+### Resiliencia
+
+- **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
+- **Cada llamada al proveedor tiene un tiempo máximo de espera**: 10 s para la IA, que suele tardar entre 1,5 y 3 s, y 5 s para los envíos. Así una llamada que no responde no deja la petición en `processing` para siempre.
+- **Las llamadas a la IA que fallan por un error pasajero se repiten**: límite de peticiones, error del proveedor, fallo de conexión o tiempo agotado. Hasta 3 intentos, esperando 0,5 s y luego 1 s. Es distinto del reintento por una respuesta que no se puede usar: aquí la llamada falló y se repite igual; allí la llamada funcionó y se pide otra respuesta. En el peor caso, una petición hace 6 llamadas a la IA.
+- **Las notificaciones salen de una cola al ritmo que acepta el proveedor.** El proveedor admite 50 envíos cada 10 s y solo de uno en uno, así que la cola envía uno cada 200 ms (`NOTIFY_RATE_PER_SECOND`). Mientras espera turno, la petición sigue en `processing`.
+- **Los envíos rechazados se reintentan si el error puede ser pasajero**, con la misma regla que las llamadas a la IA. Cada intento espera el doble que el anterior, con una parte aleatoria para que los reintentos no lleguen todos a la vez, y pasa por delante de los que esperan. Tras 5 intentos, o con cualquier otro error, la petición queda en `failed`.
+
+### Configuración
+
 - **La configuración es obligatoria y se comprueba al arrancar.**
 
 ## Mejoras posibles
 
 - **Cola persistente y con tamaño máximo.** Ahora vive en memoria: si el servicio se reinicia, las notificaciones pendientes se pierden, y con tráfico sostenido por encima de lo que acepta el proveedor crece sin límite. Con una cola externa (por ejemplo, Redis o un broker de mensajes) sobreviviría a reinicios y se podrían rechazar peticiones nuevas al llenarse.
+- **Apagado ordenado:** al parar el servicio, terminar de enviar lo que hay en cola antes de salir.
+- **Métricas** de peticiones por estado, motivos de fallo y reintentos. Ahora esas cifras se obtienen contando líneas en los logs.
 - **Envío en bloque** si el proveedor lo ofreciera y su límite contara llamadas, para enviar más notificaciones por segundo.
 - **Reparación del JSON más general.** Cubre las formas que produce el motor actual; otras, como un apóstrofo dentro de un valor entre comillas simples, no se reparan.
