@@ -6,10 +6,12 @@ const MIN_PHONE_DIGITS = 9
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/
 const PHONE = /\+?\d(?:[\s-]?\d){8,14}/
 const RECIPIENT = new RegExp(`${EMAIL.source}|${PHONE.source}`, 'g')
+const WHOLE_EMAIL = new RegExp(`^(?:${EMAIL.source})$`)
+const WHOLE_PHONE = new RegExp(`^(?:${PHONE.source})$`)
 
 export function channelOf(recipient: string): Channel | undefined {
-  if (fullMatch(EMAIL, recipient)) return 'email'
-  if (fullMatch(PHONE, recipient)) return 'sms'
+  if (WHOLE_EMAIL.test(recipient)) return 'email'
+  if (WHOLE_PHONE.test(recipient)) return 'sms'
   return undefined
 }
 
@@ -34,8 +36,4 @@ function samePhone(a: string, b: string): boolean {
 
 function digitsOf(phone: string): string {
   return phone.replace(/\D/g, '')
-}
-
-function fullMatch(pattern: RegExp, text: string): boolean {
-  return new RegExp(`^(?:${pattern.source})$`).test(text)
 }
