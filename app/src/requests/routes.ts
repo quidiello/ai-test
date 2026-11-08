@@ -37,8 +37,8 @@ export function requestRoutes(deps: ProcessDeps) {
     const request = store.get(c.req.param('id'))
     if (!request) return c.json({ error: 'Request not found' }, 404)
 
-    startProcessing(deps, request.id)
-    return c.json({ id: request.id, status: request.status }, 202)
+    const started = startProcessing(deps, request.id)
+    return c.json({ id: request.id, status: request.status }, started ? 202 : 200)
   })
 
   return routes

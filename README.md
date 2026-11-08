@@ -158,11 +158,11 @@ app/
 
 ## API
 
-| Método y ruta                    | Respuesta                                    |
-| -------------------------------- | -------------------------------------------- |
-| `POST /v1/requests`              | `201 { id }`                                 |
-| `POST /v1/requests/{id}/process` | `202 { id, status }`                         |
-| `GET /v1/requests/{id}`          | `200 { id, status }`                         |
+| Método y ruta                    | Respuesta                                                         |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `POST /v1/requests`              | `201 { id }`                                                      |
+| `POST /v1/requests/{id}/process` | `202 { id, status }`, o `200` si no hay nada que poner en marcha  |
+| `GET /v1/requests/{id}`          | `200 { id, status }`                                              |
 
 `status` es `queued`, `processing`, `sent` o `failed`. Los errores devuelven `{ error }`: 400 si el JSON está mal formado, 422 si `user_input` falta, está vacío o pasa de 1000 caracteres, y 404 si la petición no existe.
 
@@ -174,7 +174,7 @@ app/
 - **422 para entradas inválidas**, el código que devolvería FastAPI con el mismo contrato, y 400 solo cuando el cuerpo no es JSON.
 - **`user_input` admite hasta 1000 caracteres.** Se envía entero a la IA en cada intento; una petición de notificación es una frase corta y el límite deja margen de sobra.
 - **`/process` responde 202 y el procesamiento sigue en segundo plano.** La IA tarda segundos en responder; el estado se consulta con `GET /v1/requests/{id}`.
-- **Una petición solo se procesa una vez.** `/process` solo la pone en marcha si está en `queued`; si no, devuelve su estado actual. Así una llamada repetida no envía la notificación dos veces.
+- **Una notificación nunca se envía dos veces.** `/process` pone en marcha la petición si está en `queued`, o en `failed`, que nunca llegó a enviarse, y responde 202. Si ya está en curso o enviada, no hace nada y responde 200 con su estado actual.
 - **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
 
 ### Respuesta de la IA

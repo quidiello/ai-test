@@ -9,11 +9,14 @@ export interface ProcessDeps {
   notifier: NotifyClient
 }
 
-export function startProcessing(deps: ProcessDeps, id: string): void {
-  if (deps.store.get(id)?.status !== 'queued') return
+// Starts a request that is queued, or failed and therefore never sent. Returns whether it was started.
+export function startProcessing(deps: ProcessDeps, id: string): boolean {
+  const status = deps.store.get(id)?.status
+  if (status !== 'queued' && status !== 'failed') return false
 
   deps.store.updateStatus(id, 'processing')
   processRequest(deps, id).catch((err) => console.error(`Request ${id} crashed`, err))
+  return true
 }
 
 export async function processRequest({ store, ai, notifier }: ProcessDeps, id: string): Promise<void> {

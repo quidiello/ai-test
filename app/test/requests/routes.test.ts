@@ -3,6 +3,8 @@ import { createApp } from '../../src/app.js'
 import { RequestStore } from '../../src/requests/store.js'
 import { fakeAi, fakeNotifier, pendingAi, VALID_EXTRACTION } from '../fakes.js'
 
+const REFUSAL = 'Refused: Content analysis flagged sensitive information.'
+
 let app: ReturnType<typeof createApp>
 
 beforeEach(() => {
@@ -138,16 +140,44 @@ describe('POST /v1/requests/:id/process', () => {
     })
   })
 
-  it('does not process a request twice', async () => {
-    const ai = fakeAi(VALID_EXTRACTION, VALID_EXTRACTION)
+  it('answers 200 with the current status when the request is already processing', async () => {
+    const ai = pendingAi()
     app = createApp({ store: new RequestStore(), ai, notifier: fakeNotifier() })
     const id = await createRequest()
 
     await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
     const second = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
 
-    expect(second.status).toBe(202)
+    expect(second.status).toBe(200)
+    expect(await second.json()).toEqual({ id, status: 'processing' })
     expect(ai.complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers 200 without sending again when the request was already sent', async () => {
+    const notifier = fakeNotifier()
+    app = createApp({ store: new RequestStore(), ai: fakeAi(VALID_EXTRACTION), notifier })
+    const id = await createRequest()
+    await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+    await vi.waitFor(async () => expect((await (await app.request(`/v1/requests/${id}`)).json()).status).toBe('sent'))
+
+    const again = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+
+    expect(again.status).toBe(200)
+    expect(await again.json()).toEqual({ id, status: 'sent' })
+    expect(notifier.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('processes a failed request again with 202', async () => {
+    const ai = fakeAi(REFUSAL, REFUSAL, VALID_EXTRACTION)
+    app = createApp({ store: new RequestStore(), ai, notifier: fakeNotifier() })
+    const id = await createRequest()
+    await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+    await vi.waitFor(async () => expect((await (await app.request(`/v1/requests/${id}`)).json()).status).toBe('failed'))
+
+    const again = await app.request(`/v1/requests/${id}/process`, { method: 'POST' })
+
+    expect(again.status).toBe(202)
+    await vi.waitFor(async () => expect((await (await app.request(`/v1/requests/${id}`)).json()).status).toBe('sent'))
   })
 
   it('returns 404 when processing an unknown request id', async () => {

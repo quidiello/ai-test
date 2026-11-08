@@ -75,14 +75,25 @@ describe('startProcessing', () => {
     await vi.waitFor(() => expect(store.get(id)?.status).toBe('sent'))
   })
 
-  it('ignores a request that is no longer queued', () => {
+  it.each(['processing', 'sent'] as const)('ignores a request that is %s and reports it was not started', (status) => {
     const { id } = store.create('Manda un mail a feda@test.com diciendo hola')
-    store.updateStatus(id, 'sent')
+    store.updateStatus(id, status)
     const ai = fakeAi(VALID_EXTRACTION)
 
-    startProcessing({ store, ai, notifier: fakeNotifier() }, id)
+    const started = startProcessing({ store, ai, notifier: fakeNotifier() }, id)
 
+    expect(started).toBe(false)
     expect(ai.complete).not.toHaveBeenCalled()
-    expect(store.get(id)?.status).toBe('sent')
+    expect(store.get(id)?.status).toBe(status)
+  })
+
+  it('starts a failed request again', async () => {
+    const { id } = store.create('Manda un mail a feda@test.com diciendo hola')
+    store.updateStatus(id, 'failed')
+
+    const started = startProcessing({ store, ai: fakeAi(VALID_EXTRACTION), notifier: fakeNotifier() }, id)
+
+    expect(started).toBe(true)
+    await vi.waitFor(() => expect(store.get(id)?.status).toBe('sent'))
   })
 })
