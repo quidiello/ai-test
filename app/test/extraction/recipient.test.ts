@@ -41,6 +41,18 @@ describe('isMentionedIn', () => {
     expect(isMentionedIn('600111222', 'Avisar por SMS al 600-111-222')).toBe(true)
   })
 
+  it('matches a phone number written with a country prefix', () => {
+    expect(isMentionedIn('+34 600 111 222', 'Avisar por SMS al 600-111-222')).toBe(true)
+  })
+
+  it('matches a phone number written without the country prefix the user used', () => {
+    expect(isMentionedIn('600111222', 'Avisar por SMS al +34 600 111 222')).toBe(true)
+  })
+
+  it('rejects a different phone number with the same country prefix', () => {
+    expect(isMentionedIn('+34 600 111 333', 'Avisar por SMS al 600-111-222')).toBe(false)
+  })
+
   it('rejects a recipient that is not in the text', () => {
     expect(isMentionedIn('otro@example.com', 'Enviar email a juan@example.com')).toBe(false)
     expect(isMentionedIn('600111333', 'Avisar por SMS al 600-111-222')).toBe(false)

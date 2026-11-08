@@ -185,7 +185,7 @@ app/
   1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.
   2. Se repara el JSON mal formado de las formas que produce el motor: cortado con `...`, con comillas simples o con claves sin comillas. Las cadenas no se modifican.
   3. Se normalizan los nombres de los campos (`Recipient`, `destination`, `body`, `channel`…) y se descartan los que sobran.
-  4. El destinatario tiene que ser un email o un teléfono que aparezca en el texto del usuario. Si falta, la respuesta no sirve: el servicio no lo busca por su cuenta, porque extraerlo es trabajo de la IA.
+  4. El destinatario tiene que ser un email o un teléfono que aparezca en el texto del usuario. Los teléfonos se comparan por sus cifras, aceptando que uno de los dos lleve el prefijo del país. Si falta, la respuesta no sirve: el servicio no lo busca por su cuenta, porque extraerlo es trabajo de la IA.
   5. Si falta el tipo, se deduce del destinatario, con la misma regla que se le da a la IA: un email es `email` y un teléfono, `sms`. Si viene, tiene que corresponder con el destinatario.
 
   Si algún paso falla, la petición queda en `failed` y el motivo en el log.
