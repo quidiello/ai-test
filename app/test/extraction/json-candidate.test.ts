@@ -28,6 +28,26 @@ describe('findJsonCandidate', () => {
     expect(findJsonCandidate('{"to": "a@b.com", "type": "email" ...')).toBe('{"to": "a@b.com", "type": "email" ...')
   })
 
+  it('ignores text with braces after the object', () => {
+    const text = '{"to": "a@b.com", "message": "hola"} (formato {to, message})'
+
+    expect(findJsonCandidate(text)).toBe('{"to": "a@b.com", "message": "hola"}')
+  })
+
+  it('takes only the first object when there are two', () => {
+    expect(findJsonCandidate('{"to": "a@b.com"} o bien {"to": "c@d.com"}')).toBe('{"to": "a@b.com"}')
+  })
+
+  it('does not count braces inside string values', () => {
+    const text = '{"to": "a@b.com", "message": "usa {nombre} y }"} fin'
+
+    expect(findJsonCandidate(text)).toBe('{"to": "a@b.com", "message": "usa {nombre} y }"}')
+  })
+
+  it('keeps nested objects whole', () => {
+    expect(findJsonCandidate('Resultado: {"a": {"b": 1}} listo')).toBe('{"a": {"b": 1}}')
+  })
+
   it('returns undefined when the text has no object', () => {
     expect(findJsonCandidate('Refused: Content analysis flagged sensitive information.')).toBeUndefined()
   })
