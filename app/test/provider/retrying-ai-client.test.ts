@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../../src/provider/ai-client.js'
-import { ProviderError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderNetworkError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
 import { RetryingAiClient } from '../../src/provider/retrying-ai-client.js'
 import { fakeAi } from '../fakes.js'
 
@@ -52,7 +52,7 @@ describe('RetryingAiClient', () => {
 
   it('sends the same messages on each attempt', async () => {
     const ai = fakeAi()
-    ai.complete.mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValue(ANSWER)
+    ai.complete.mockRejectedValueOnce(new ProviderNetworkError('ai/extract', new TypeError('fetch failed'))).mockResolvedValue(ANSWER)
 
     const answer = new RetryingAiClient(ai, options).complete(messages)
     await vi.advanceTimersByTimeAsync(500)
@@ -97,6 +97,18 @@ describe('RetryingAiClient', () => {
 
     const answer = new RetryingAiClient(ai, options).complete(messages)
     const outcome = expect(answer).rejects.toMatchObject({ status: 401 })
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    await outcome
+    expect(ai.complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry an unexpected error, like a malformed answer', async () => {
+    const ai = fakeAi()
+    ai.complete.mockRejectedValue(new SyntaxError('Unexpected token < in JSON'))
+
+    const answer = new RetryingAiClient(ai, options).complete(messages)
+    const outcome = expect(answer).rejects.toBeInstanceOf(SyntaxError)
     await vi.advanceTimersByTimeAsync(10_000)
 
     await outcome

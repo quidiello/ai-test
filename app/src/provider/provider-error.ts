@@ -8,10 +8,10 @@ export class ProviderError extends Error {
   }
 }
 
-// Errors worth retrying: rate limits, provider failures, timeouts and network errors.
+// Errors worth retrying: rate limits, provider failures, timeouts and network errors. Anything else fails at once.
 export function isTransientError(err: unknown): boolean {
   if (err instanceof ProviderError) return err.status === 429 || err.status >= 500
-  return true
+  return err instanceof ProviderTimeoutError || err instanceof ProviderNetworkError
 }
 
 // Doubles on each attempt; the random factor keeps retries from hitting the provider all at once.
@@ -26,5 +26,15 @@ export class ProviderTimeoutError extends Error {
   ) {
     super(`${endpoint} timed out after ${timeoutMs} ms`)
     this.name = 'ProviderTimeoutError'
+  }
+}
+
+export class ProviderNetworkError extends Error {
+  constructor(
+    readonly endpoint: string,
+    cause: unknown,
+  ) {
+    super(`${endpoint} could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    this.name = 'ProviderNetworkError'
   }
 }

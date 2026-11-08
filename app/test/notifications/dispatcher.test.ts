@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotificationDispatcher } from '../../src/notifications/dispatcher.js'
-import { ProviderError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderNetworkError } from '../../src/provider/provider-error.js'
 import { fakeNotifier } from '../fakes.js'
 
 const notification = { to: 'feda@test.com', message: 'hola', type: 'email' as const }
@@ -74,7 +74,7 @@ describe('NotificationDispatcher', () => {
 
   it('retries after a network error', async () => {
     const notifier = fakeNotifier()
-    notifier.send.mockRejectedValueOnce(new TypeError('fetch failed'))
+    notifier.send.mockRejectedValueOnce(new ProviderNetworkError('notify', new TypeError('fetch failed')))
     const dispatcher = new NotificationDispatcher(notifier, options)
 
     const sent = dispatcher.send(notification)

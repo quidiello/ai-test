@@ -17,8 +17,8 @@ interface ChatCompletion {
 export function createAiClient(config: ClientConfig): AiClient {
   return {
     async complete(messages) {
-      const res = await providerPost(config, 'ai/extract', { messages })
-      const completion = (await res.json()) as ChatCompletion
+      const body = await providerPost(config, 'ai/extract', { messages })
+      const completion = JSON.parse(body) as ChatCompletion
       return completion.choices[0].message.content
     },
   }

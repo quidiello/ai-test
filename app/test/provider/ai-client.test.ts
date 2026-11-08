@@ -61,4 +61,22 @@ describe('AI client', () => {
     await expect(call).rejects.toBeInstanceOf(ProviderTimeoutError)
     await expect(call).rejects.toThrow('ai/extract timed out after 20 ms')
   })
+
+  it('fails with a timeout error when the answer body does not arrive in time', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init: RequestInit) => {
+        const body = new ReadableStream({
+          start(controller) {
+            init.signal?.addEventListener('abort', () => controller.error(init.signal?.reason))
+          },
+        })
+        return Promise.resolve(new Response(body, { status: 200 }))
+      }),
+    )
+
+    const call = createAiClient({ ...config, timeoutMs: 20 }).complete([{ role: 'user', content: 'hi' }])
+
+    await expect(call).rejects.toBeInstanceOf(ProviderTimeoutError)
+  })
 })

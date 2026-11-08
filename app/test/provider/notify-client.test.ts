@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createNotifyClient } from '../../src/provider/notify-client.js'
-import { ProviderError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderNetworkError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
 import { stubHangingFetch } from '../fakes.js'
 
 const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key', timeoutMs: 1000 }
@@ -36,6 +36,15 @@ describe('Notify client', () => {
 
     await expect(call).rejects.toBeInstanceOf(ProviderError)
     await expect(call).rejects.toMatchObject({ status: 429 })
+  })
+
+  it('fails with a network error when the provider cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+
+    const call = createNotifyClient(config).send(notification)
+
+    await expect(call).rejects.toBeInstanceOf(ProviderNetworkError)
+    await expect(call).rejects.toThrow('notify could not be reached: fetch failed')
   })
 
   it('fails with a timeout error when the notify provider does not answer in time', async () => {
