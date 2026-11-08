@@ -34,6 +34,13 @@ describe('extractNotification retries', () => {
     expect(ai.complete).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects without retrying when the AI reports an error', async () => {
+    const ai = fakeAi('{"error": "missing_recipient"}')
+
+    await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('AI reported missing_recipient')
+    expect(ai.complete).toHaveBeenCalledTimes(1)
+  })
+
   it('does not retry when the user input has several recipients', async () => {
     const ai = fakeAi('{"message": "hola", "type": "email"}')
 

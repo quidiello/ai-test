@@ -102,7 +102,8 @@ app/
   src/requests/routes.ts              endpoints de /v1/requests
   src/requests/store.ts               almacenamiento de las peticiones
   src/requests/process-request.ts     procesamiento: extracción, envío y estado
-  src/extraction/extractor.ts         prompt y validación de la respuesta de la IA
+  src/extraction/prompt.ts            instrucciones para la IA
+  src/extraction/extractor.ts         llamada a la IA, reintento y validación de la respuesta
   src/extraction/json-candidate.ts    localiza el JSON en el texto de la respuesta
   src/extraction/json-repair.ts       repara el JSON mal formado
   src/extraction/fields.ts            normaliza los nombres de los campos
@@ -147,6 +148,7 @@ app/
 - **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
 - **Si la respuesta de la IA no se puede usar, se pide otra vez, una sola vez.** El segundo intento añade al mensaje `system` que la respuesta anterior no sirvió; el texto del usuario se envía igual. No se reintenta cuando el problema está en el texto del usuario (no contiene ningún destinatario, o contiene varios), porque la respuesta sería la misma.
 - **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
+- **El prompt** ([prompt.ts](app/src/extraction/prompt.ts)) pide un único objeto JSON sin Markdown ni texto alrededor, y fija una regla para cada campo: el destinatario se copia tal como aparece y nunca se inventa, el mensaje es solo el contenido a enviar en el idioma del usuario, y el tipo lo decide el destinatario. Si no se puede extraer, la IA responde `{"error": "..."}` con un motivo de una lista cerrada; esa respuesta no se reintenta, porque el problema está en el texto del usuario. El prompt indica que el mensaje del usuario es un dato y no instrucciones, e incluye tres ejemplos en español, el idioma de las peticiones.
 - **La configuración es obligatoria y se comprueba al arrancar.**
 
 ## Mejoras posibles

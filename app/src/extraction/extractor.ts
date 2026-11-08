@@ -3,15 +3,8 @@ import type { AiClient } from '../provider/ai-client.js'
 import { normalizeFields } from './fields.js'
 import { findJsonCandidate } from './json-candidate.js'
 import { parseLenientJson } from './json-repair.js'
+import { RETRY_NOTE, SYSTEM_PROMPT } from './prompt.js'
 import { channelOf, findRecipients, isMentionedIn } from './recipient.js'
-
-const SYSTEM_PROMPT = `Extract the notification the user wants to send.
-Respond only with a JSON object with these fields:
-- "to": the email address or phone number of the recipient
-- "message": the text to send
-- "type": "email" or "sms"`
-
-const RETRY_NOTE = `Your previous answer could not be used. Return only the JSON object, with no other text.`
 
 export class ExtractionError extends Error {
   constructor(
@@ -46,7 +39,10 @@ function toNotification(content: string, userInput: string): Notification {
   const candidate = findJsonCandidate(content)
   if (candidate === undefined) throw new ExtractionError('no JSON found')
 
-  const fields = normalizeFields(parseObject(candidate))
+  const parsed = parseObject(candidate)
+  if (typeof parsed.error === 'string') throw new ExtractionError(`AI reported ${parsed.error}`, false)
+
+  const fields = normalizeFields(parsed)
 
   const to = fields.to ?? recipientFromUserInput(userInput)
   const channel = channelOf(to)
