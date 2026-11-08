@@ -63,12 +63,14 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 | Limpieza y validación de la respuesta | 100 % | 2,3 s | 18 % (204 de 1143) | 9 % | 1,00 |
 | Procesamiento en segundo plano | 100 % | 0,5 ms | 7 % (203 de 2749) | 11 % | 1,00 |
 | Cola de envíos con límite de ritmo | 100 % | 0,6 ms | 91 % (2488 de 2749) | 9 % | 1,00 |
+| Reintento de respuestas no utilizables | 100 % | 0,5 ms | 99 % (2727 de 2749) | 0,8 % | 1,10 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
 - Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
 - Con la limpieza, las respuestas de la IA que fallan son solo las negativas, que no contienen datos. Las enviadas no suben porque el proveedor de notificaciones acepta unas 50 cada 10 s, y el resto se rechaza por límite de peticiones (73 %).
 - En segundo plano, `/process` responde sin esperar a la IA y cada usuario del test completa más peticiones en el mismo tiempo. Los envíos aceptados siguen siendo unos 200, así que el porcentaje baja: el 82 % se rechaza por límite de peticiones. Las enviadas se cuentan cuando termina el procesamiento pendiente, unos segundos después del test.
 - Con la cola, todas las peticiones con una respuesta de la IA utilizable acaban enviadas; solo fallan las negativas. Los envíos salen al ritmo del proveedor, así que la cola tarda unos 8 minutos en vaciarse después del test. Hubo 6 rechazos por límite de peticiones, que se enviaron al reintentarlos.
+- Con el reintento, el 10 % de respuestas no utilizables se pide otra vez y casi todas salen bien a la segunda: solo fallan las que se niegan dos veces seguidas. Cada reintento es una llamada más a la IA.
 
 ## Stack
 
@@ -139,6 +141,7 @@ app/
 
   Si algún paso falla, la petición queda en `failed` y el motivo en el log.
 - **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
+- **Si la respuesta de la IA no se puede usar, se pide otra vez, una sola vez.** El segundo intento añade al mensaje `system` que la respuesta anterior no sirvió; el texto del usuario se envía igual. No se reintenta cuando el problema está en el texto del usuario (no contiene ningún destinatario, o contiene varios), porque la respuesta sería la misma.
 - **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
 - **La configuración es obligatoria y se comprueba al arrancar.**
 

@@ -1,9 +1,76 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExtractionError, extractNotification } from '../../src/extraction/extractor.js'
 import { fakeAi, VALID_EXTRACTION } from '../fakes.js'
 
 const USER_INPUT = 'Manda un mail a feda@test.com diciendo hola'
 const EXPECTED = { to: 'feda@test.com', message: 'hola', type: 'email' }
+const REFUSAL = 'Refused: Content analysis flagged sensitive information.'
+
+beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
+describe('extractNotification retries', () => {
+  it('retries once when the AI refuses and returns the second answer', async () => {
+    const ai = fakeAi(REFUSAL, VALID_EXTRACTION)
+
+    const notification = await extractNotification(ai, USER_INPUT)
+
+    expect(notification).toEqual(EXPECTED)
+    expect(ai.complete).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up after a second unusable answer', async () => {
+    const ai = fakeAi(REFUSAL, REFUSAL)
+
+    await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('no JSON found')
+    expect(ai.complete).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry when the user input has no recipient', async () => {
+    const ai = fakeAi('{"message": "hola", "type": "email"}')
+
+    await expect(extractNotification(ai, 'Manda un mail diciendo hola')).rejects.toThrow('missing recipient')
+    expect(ai.complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry when the user input has several recipients', async () => {
+    const ai = fakeAi('{"message": "hola", "type": "email"}')
+
+    await expect(extractNotification(ai, 'Manda un mail a feda@test.com y a otro@test.com')).rejects.toThrow(
+      'ambiguous recipient',
+    )
+    expect(ai.complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('adds a correction to the system prompt on the retry', async () => {
+    const ai = fakeAi(REFUSAL, VALID_EXTRACTION)
+
+    await extractNotification(ai, USER_INPUT)
+
+    const [first] = ai.complete.mock.calls[0]
+    const [retry] = ai.complete.mock.calls[1]
+    expect(retry[0].role).toBe('system')
+    expect(retry[0].content.startsWith(first[0].content)).toBe(true)
+    expect(retry[0].content.length).toBeGreaterThan(first[0].content.length)
+  })
+
+  it('sends the user input unchanged on the retry', async () => {
+    const ai = fakeAi(REFUSAL, VALID_EXTRACTION)
+
+    await extractNotification(ai, USER_INPUT)
+
+    const [retry] = ai.complete.mock.calls[1]
+    expect(retry).toHaveLength(2)
+    expect(retry[1]).toEqual({ role: 'user', content: USER_INPUT })
+  })
+
+  it('logs the reason of each retry', async () => {
+    await extractNotification(fakeAi(REFUSAL, VALID_EXTRACTION), USER_INPUT)
+
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('no JSON found'))
+  })
+})
 
 describe('extractNotification', () => {
   it('sends a system prompt followed by the user input as is', async () => {

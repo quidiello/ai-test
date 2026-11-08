@@ -3,9 +3,11 @@ import type { Notification } from '../src/notifications/notification.js'
 import type { AiClient, ChatMessage } from '../src/provider/ai-client.js'
 import type { NotifyClient } from '../src/provider/notify-client.js'
 
+// Answers with each response in turn and keeps repeating the last one.
 export function fakeAi(...responses: string[]) {
   const complete = vi.fn<(messages: ChatMessage[]) => Promise<string>>()
   for (const response of responses) complete.mockResolvedValueOnce(response)
+  if (responses.length > 0) complete.mockResolvedValue(responses[responses.length - 1])
   return { complete } satisfies AiClient
 }
 

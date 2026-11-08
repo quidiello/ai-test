@@ -11,16 +11,32 @@ Respond only with a JSON object with these fields:
 - "message": the text to send
 - "type": "email" or "sms"`
 
+const RETRY_NOTE = `Your previous answer could not be used. Return only the JSON object, with no other text.`
+
 export class ExtractionError extends Error {
-  constructor(reason: string) {
+  constructor(
+    reason: string,
+    readonly retryable = true,
+  ) {
     super(`invalid AI response: ${reason}`)
     this.name = 'ExtractionError'
   }
 }
 
 export async function extractNotification(ai: AiClient, userInput: string): Promise<Notification> {
+  try {
+    return await extractOnce(ai, SYSTEM_PROMPT, userInput)
+  } catch (err) {
+    if (!(err instanceof ExtractionError) || !err.retryable) throw err
+    console.warn(`Retrying extraction: ${err.message}`)
+    return extractOnce(ai, `${SYSTEM_PROMPT}\n\n${RETRY_NOTE}`, userInput)
+  }
+}
+
+// The correction goes in the system message: the user message is always the user's own text.
+async function extractOnce(ai: AiClient, systemPrompt: string, userInput: string): Promise<Notification> {
   const content = await ai.complete([
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     { role: 'user', content: userInput },
   ])
   return toNotification(content, userInput)
@@ -61,7 +77,7 @@ function parseObject(candidate: string): Record<string, unknown> {
 // The AI response is not trusted to invent a recipient: a missing one is only taken from the user's own words.
 function recipientFromUserInput(userInput: string): string {
   const recipients = findRecipients(userInput)
-  if (recipients.length === 0) throw new ExtractionError('missing recipient')
-  if (recipients.length > 1) throw new ExtractionError('ambiguous recipient')
+  if (recipients.length === 0) throw new ExtractionError('missing recipient', false)
+  if (recipients.length > 1) throw new ExtractionError('ambiguous recipient', false)
   return recipients[0]
 }
