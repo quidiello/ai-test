@@ -1,4 +1,5 @@
 import type { DispatcherOptions } from './notifications/dispatcher.js'
+import type { AiRetryOptions } from './provider/retrying-ai-client.js'
 
 export interface ProviderConfig {
   baseUrl: string
@@ -11,7 +12,7 @@ export interface ClientConfig extends ProviderConfig {
 
 export interface Config {
   provider: ProviderConfig
-  ai: { timeoutMs: number }
+  ai: AiRetryOptions & { timeoutMs: number }
   notify: DispatcherOptions & { timeoutMs: number }
 }
 
@@ -23,6 +24,8 @@ export function loadConfig(): Config {
     },
     ai: {
       timeoutMs: positiveNumberEnv('AI_TIMEOUT_MS'),
+      maxAttempts: 3,
+      retryBaseDelayMs: 500,
     },
     notify: {
       timeoutMs: positiveNumberEnv('NOTIFY_TIMEOUT_MS'),

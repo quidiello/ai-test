@@ -1,5 +1,5 @@
 import type { NotifyClient } from '../provider/notify-client.js'
-import { ProviderError } from '../provider/provider-error.js'
+import { isTransientError, retryDelay } from '../provider/provider-error.js'
 import type { Notification } from './notification.js'
 
 export interface DispatcherOptions {
@@ -64,24 +64,14 @@ export class NotificationDispatcher implements NotifyClient {
       await this.notifier.send(job.notification)
       job.resolve()
     } catch (err) {
-      if (!isRetryable(err) || job.attempt >= this.options.maxAttempts) {
+      if (!isTransientError(err) || job.attempt >= this.options.maxAttempts) {
         job.reject(err)
         return
       }
       setTimeout(() => {
         this.queue.unshift({ ...job, attempt: job.attempt + 1 })
         this.schedule()
-      }, this.retryDelay(job.attempt))
+      }, retryDelay(this.options.retryBaseDelayMs, job.attempt))
     }
   }
-
-  // Doubles on each attempt; the random factor keeps retries from hitting the provider all at once.
-  private retryDelay(attempt: number): number {
-    return this.options.retryBaseDelayMs * 2 ** (attempt - 1) * (0.5 + Math.random())
-  }
-}
-
-function isRetryable(err: unknown): boolean {
-  if (err instanceof ProviderError) return err.status === 429 || err.status >= 500
-  return true
 }

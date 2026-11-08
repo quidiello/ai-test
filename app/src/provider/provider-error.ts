@@ -8,6 +8,17 @@ export class ProviderError extends Error {
   }
 }
 
+// Errors worth retrying: rate limits, provider failures, timeouts and network errors.
+export function isTransientError(err: unknown): boolean {
+  if (err instanceof ProviderError) return err.status === 429 || err.status >= 500
+  return true
+}
+
+// Doubles on each attempt; the random factor keeps retries from hitting the provider all at once.
+export function retryDelay(baseDelayMs: number, attempt: number): number {
+  return baseDelayMs * 2 ** (attempt - 1) * (0.5 + Math.random())
+}
+
 export class ProviderTimeoutError extends Error {
   constructor(
     readonly endpoint: string,
