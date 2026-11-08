@@ -1,3 +1,4 @@
+import { errorMessage } from '../error-message.js'
 import type { AiClient, ChatMessage } from './ai-client.js'
 import { isTransientError, retryDelay } from './provider-error.js'
 
@@ -18,7 +19,7 @@ export class RetryingAiClient implements AiClient {
         return await this.ai.complete(messages)
       } catch (err) {
         if (!isTransientError(err) || attempt >= this.options.maxAttempts) throw err
-        console.warn(`Retrying AI call: ${err instanceof Error ? err.message : String(err)}`)
+        console.warn(`Retrying AI call: ${errorMessage(err)}`)
         await sleep(retryDelay(this.options.retryBaseDelayMs, attempt))
       }
     }

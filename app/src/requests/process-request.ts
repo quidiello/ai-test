@@ -1,3 +1,4 @@
+import { errorMessage } from '../error-message.js'
 import { extractNotification } from '../extraction/extractor.js'
 import type { AiClient } from '../provider/ai-client.js'
 import type { NotifyClient } from '../provider/notify-client.js'
@@ -29,6 +30,6 @@ export async function processRequest({ store, ai, notifier }: ProcessDeps, id: s
     store.updateStatus(id, 'sent')
   } catch (err) {
     store.updateStatus(id, 'failed')
-    console.warn(`Request ${id} failed: ${err instanceof Error ? err.message : String(err)}`)
+    console.warn(`Request ${id} failed: ${errorMessage(err)}`)
   }
 }

@@ -1,3 +1,5 @@
+import { errorMessage } from '../error-message.js'
+
 export class ProviderError extends Error {
   constructor(
     readonly endpoint: string,
@@ -41,7 +43,7 @@ export class ProviderNetworkError extends Error {
     readonly endpoint: string,
     cause: unknown,
   ) {
-    super(`${endpoint} could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    super(`${endpoint} could not be reached: ${errorMessage(cause)}`, { cause })
     this.name = 'ProviderNetworkError'
   }
 }

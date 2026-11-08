@@ -141,6 +141,7 @@ app/
   src/app.ts                          composición de la app y manejo de errores
   src/server.ts                       arranque del servidor HTTP
   src/config.ts                       configuración leída del entorno
+  src/error-message.ts                texto de un error para los logs
   src/requests/routes.ts              endpoints de /v1/requests
   src/requests/store.ts               almacenamiento de las peticiones
   src/requests/process-request.ts     procesamiento: extracción, envío y estado
