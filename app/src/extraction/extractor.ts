@@ -2,7 +2,7 @@ import type { Notification } from '../notifications/notification.js'
 import type { AiClient } from '../provider/ai-client.js'
 import { normalizeFields } from './fields.js'
 import { findJsonCandidate } from './json-candidate.js'
-import { parseLenientJson } from './json-repair.js'
+import { CutOffJsonError, parseLenientJson } from './json-repair.js'
 import { RETRY_HINTS, SYSTEM_PROMPT } from './prompt.js'
 import { channelOf, isMentionedIn } from './recipient.js'
 
@@ -64,7 +64,8 @@ function parseObject(candidate: string): Record<string, unknown> {
   let parsed: unknown
   try {
     parsed = parseLenientJson(candidate)
-  } catch {
+  } catch (err) {
+    if (err instanceof CutOffJsonError) throw new ExtractionError('answer was cut off', RETRY_HINTS.cutOff)
     throw new ExtractionError('malformed JSON', RETRY_HINTS.invalidJson)
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {

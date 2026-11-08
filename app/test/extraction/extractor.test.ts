@@ -45,6 +45,7 @@ describe('extractNotification retries', () => {
 
   it.each([
     ['no JSON', REFUSAL, 'not a valid JSON object'],
+    ['a value cut off', '{"to": "feda@test.com", "message": "ho', 'was cut off before the end'],
     ['no recipient', '{"message": "hola", "type": "email"}', 'had no "to"'],
     ['a recipient that is not an email or phone', '{"to": "feda", "message": "hola", "type": "email"}', 'was not an email address or a phone number'],
     ['a recipient not in the message', '{"to": "otro@test.com", "message": "hola", "type": "email"}', 'does not appear in the message'],
@@ -171,6 +172,12 @@ describe('extractNotification', () => {
     const ai = fakeAi('{"to": "feda@test.com", "type": "email"}')
 
     await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('missing message')
+  })
+
+  it('rejects an answer that was cut off in the middle of a value', async () => {
+    const ai = fakeAi('{"to": "feda@test.com", "message": "ho')
+
+    await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('answer was cut off')
   })
 
   it('rejects JSON that cannot be repaired', async () => {

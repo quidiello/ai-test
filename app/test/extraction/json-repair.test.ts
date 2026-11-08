@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseLenientJson } from '../../src/extraction/json-repair.js'
+import { CutOffJsonError, parseLenientJson } from '../../src/extraction/json-repair.js'
 
 const expected = { to: 'a@b.com', message: 'hola', type: 'email' }
 
@@ -29,6 +29,10 @@ describe('parseLenientJson', () => {
 
   it('drops a trailing comma', () => {
     expect(parseLenientJson('{"to": "a@b.com", "message": "hola", "type": "email",}')).toEqual(expected)
+  })
+
+  it('does not repair a value that was cut off', () => {
+    expect(() => parseLenientJson('{"to": "a@b.com", "message": "Tu pedido ha sal')).toThrow(CutOffJsonError)
   })
 
   it('throws when the text cannot be repaired', () => {

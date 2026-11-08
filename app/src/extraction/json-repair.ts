@@ -1,5 +1,12 @@
 const DOUBLE_QUOTED_STRING = /"(?:[^"\\]|\\.)*"/g
 
+export class CutOffJsonError extends SyntaxError {
+  constructor() {
+    super('a value was cut off')
+    this.name = 'CutOffJsonError'
+  }
+}
+
 export function parseLenientJson(text: string): unknown {
   try {
     return JSON.parse(text)
@@ -11,12 +18,14 @@ export function parseLenientJson(text: string): unknown {
 function repair(text: string): string {
   let json = text.trim().replace(/\s*(?:\.\.\.|…)$/, '')
 
+  // An unclosed string means a value was cut off: completing it would send a truncated message.
+  if (countOf(json, '"') % 2 === 1) throw new CutOffJsonError()
+
   json = outsideStrings(json, (part) => part.replace(/'([^']*)'/g, '"$1"'))
   json = outsideStrings(json, (part) =>
     part.replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":').replace(/,\s*(?=[}\]])/g, ''),
   )
 
-  if (countOf(json, '"') % 2 === 1) json += '"'
   json += '}'.repeat(Math.max(0, countOf(json, '{') - countOf(json, '}')))
   return json
 }

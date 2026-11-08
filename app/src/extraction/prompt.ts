@@ -24,6 +24,7 @@ User: Mándale un mensaje a Juan diciendo hola
 // Added to the system prompt on the retry, to tell the AI what was wrong with its previous answer.
 export const RETRY_HINTS = {
   invalidJson: 'Your previous answer was not a valid JSON object. Return only the JSON object, with no other text.',
+  cutOff: 'Your previous answer was cut off before the end. Return the complete JSON object.',
   missingRecipient:
     'Your previous answer had no "to". Copy the recipient\'s email address or phone number exactly as it appears in the message.',
   invalidRecipient: 'Your previous "to" was not an email address or a phone number.',
