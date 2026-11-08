@@ -47,15 +47,18 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 - **Checks OK:** comprobaciones de k6 que pasan.
 - **`/process`:** tiempo medio de respuesta. El scorecard lo marca en verde por debajo de 400 ms.
 - **Enviadas:** peticiones que acaban en `sent`, sobre las procesadas durante el test.
+- **Descartadas por la IA:** peticiones que acaban en `failed` porque la respuesta de la IA no contiene una notificación utilizable.
 - **Llamadas a la IA:** llamadas a `/v1/ai/extract` por cada `/process`. El scorecard la marca en verde por debajo de 1,5.
 
-| Paso | Checks OK | `/process` | Enviadas | Llamadas a la IA |
-| ---- | --------- | ---------- | -------- | ---------------- |
-| Endpoints sin procesamiento | 100 % | < 1 ms | — | — |
-| Procesamiento síncrono | 100 % | 2,3 s | 18 % (200 de 1142) | 1,00 |
+| Paso | Checks OK | `/process` | Enviadas | Descartadas por la IA | Llamadas a la IA |
+| ---- | --------- | ---------- | -------- | --------------------- | ---------------- |
+| Endpoints sin procesamiento | 100 % | < 1 ms | — | — | — |
+| Procesamiento síncrono | 100 % | 2,3 s | 18 % (200 de 1142) | 48 % | 1,00 |
+| Limpieza y validación de la respuesta | 100 % | 2,3 s | 18 % (204 de 1143) | 9 % | 1,00 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
 - Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
+- Con la limpieza, las respuestas de la IA que fallan son solo las negativas, que no contienen datos. Las enviadas no suben porque el proveedor de notificaciones acepta unas 50 cada 10 s, y el resto se rechaza por límite de peticiones (73 %).
 
 ## Stack
 
@@ -85,7 +88,11 @@ app/
   src/requests/store.ts               almacenamiento de las peticiones
   src/requests/process-request.ts     procesamiento: extracción, envío y estado
   src/extraction/extractor.ts         prompt y validación de la respuesta de la IA
-  src/notifications/notification.ts   esquema de la notificación
+  src/extraction/json-candidate.ts    localiza el JSON en el texto de la respuesta
+  src/extraction/json-repair.ts       repara el JSON mal formado
+  src/extraction/fields.ts            normaliza los nombres de los campos
+  src/extraction/recipient.ts         reconoce emails y teléfonos
+  src/notifications/notification.ts   tipo de la notificación
   src/provider/                       clientes HTTP del motor de IA y de notificaciones
   test/                               tests
 ```
@@ -106,6 +113,15 @@ app/
 - **422 para entradas inválidas**, el código que devolvería FastAPI con el mismo contrato, y 400 solo cuando el cuerpo no es JSON.
 - **La app recibe sus dependencias como parámetro** (`createApp({ store, ai, notifier })`): cada test empieza con un almacenamiento vacío y usa clientes falsos, sin red.
 - **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
-- **La respuesta de la IA se valida con un esquema** (`to`, `message` y `type` `email` o `sms`) antes de enviar nada. Si no lo cumple, la petición queda en `failed` y el motivo en el log.
+- **La respuesta de la IA se limpia y se valida antes de enviar nada**, en pasos separados que se prueban por separado:
+  1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.
+  2. Se repara el JSON mal formado de las formas que produce el motor: cortado con `...`, con comillas simples o con claves sin comillas. Las cadenas no se modifican.
+  3. Se normalizan los nombres de los campos (`Recipient`, `destination`, `body`, `channel`…) y se descartan los que sobran.
+  4. Si falta el tipo, se deduce del destinatario: un email es `email` y un teléfono, `sms`.
+  5. Si falta el destinatario, se toma del texto del usuario, solo si contiene uno.
+  6. El destinatario tiene que ser un email o un teléfono que aparezca en el texto del usuario, y el tipo tiene que corresponder con él.
+
+  Si algún paso falla, la petición queda en `failed` y el motivo en el log.
+- **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
 - **El texto del usuario se envía a la IA tal cual**, como mensaje `user` aparte del `system`, sin mezclarlo con las instrucciones.
 - **La configuración es obligatoria y se comprueba al arrancar.**

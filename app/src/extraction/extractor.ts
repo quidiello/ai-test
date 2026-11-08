@@ -1,5 +1,9 @@
-import { notificationSchema, type Notification } from '../notifications/notification.js'
+import type { Notification } from '../notifications/notification.js'
 import type { AiClient } from '../provider/ai-client.js'
+import { normalizeFields } from './fields.js'
+import { findJsonCandidate } from './json-candidate.js'
+import { parseLenientJson } from './json-repair.js'
+import { channelOf, findRecipients, isMentionedIn } from './recipient.js'
 
 const SYSTEM_PROMPT = `Extract the notification the user wants to send.
 Respond only with a JSON object with these fields:
@@ -19,15 +23,45 @@ export async function extractNotification(ai: AiClient, userInput: string): Prom
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: userInput },
   ])
+  return toNotification(content, userInput)
+}
 
+function toNotification(content: string, userInput: string): Notification {
+  const candidate = findJsonCandidate(content)
+  if (candidate === undefined) throw new ExtractionError('no JSON found')
+
+  const fields = normalizeFields(parseObject(candidate))
+
+  const to = fields.to ?? recipientFromUserInput(userInput)
+  const channel = channelOf(to)
+  if (!channel) throw new ExtractionError('recipient is not an email or phone number')
+  if (!isMentionedIn(to, userInput)) throw new ExtractionError('recipient not in user input')
+
+  const type = fields.type ?? channel
+  if (type !== channel) throw new ExtractionError('type does not match recipient')
+
+  if (!fields.message) throw new ExtractionError('missing message')
+
+  return { to, message: fields.message, type: channel }
+}
+
+function parseObject(candidate: string): Record<string, unknown> {
   let parsed: unknown
   try {
-    parsed = JSON.parse(content)
+    parsed = parseLenientJson(candidate)
   } catch {
-    throw new ExtractionError('not JSON')
+    throw new ExtractionError('malformed JSON')
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new ExtractionError('JSON is not an object')
+  }
+  return parsed as Record<string, unknown>
+}
 
-  const result = notificationSchema.safeParse(parsed)
-  if (!result.success) throw new ExtractionError('unexpected shape')
-  return result.data
+// The AI response is not trusted to invent a recipient: a missing one is only taken from the user's own words.
+function recipientFromUserInput(userInput: string): string {
+  const recipients = findRecipients(userInput)
+  if (recipients.length === 0) throw new ExtractionError('missing recipient')
+  if (recipients.length > 1) throw new ExtractionError('ambiguous recipient')
+  return recipients[0]
 }
