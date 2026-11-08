@@ -65,7 +65,7 @@ flowchart LR
 
 1. `POST /v1/requests` guarda la petición como `queued` y devuelve su id.
 2. `POST /v1/requests/{id}/process` la pasa a `processing`, responde 202 y el resto ocurre en segundo plano.
-3. La IA recibe las instrucciones y el texto del usuario. Su respuesta se limpia y se valida contra ese texto; si no se puede usar, se pide otra vez una sola vez.
+3. La IA recibe las instrucciones y el texto del usuario. Su respuesta se limpia y se valida contra ese texto; si no se puede usar, se pide otra vez una sola vez, indicando qué falló.
 4. La notificación espera turno en una cola que envía al ritmo que acepta el proveedor.
 5. La petición acaba en `sent` o en `failed`, con el motivo en el log. El estado se consulta con `GET /v1/requests/{id}`.
 
@@ -103,6 +103,7 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 | Procesamiento en segundo plano | 100 % | 0,5 ms | 7 % (203 de 2749) | 11 % | 1,00 |
 | Cola de envíos con límite de ritmo | 100 % | 0,6 ms | 91 % (2488 de 2749) | 9 % | 1,00 |
 | Reintento de respuestas no utilizables | 100 % | 0,5 ms | 99 % (2727 de 2749) | 0,8 % | 1,10 |
+| Reintento indicando qué falló, sin buscar el destinatario | 100 % | 0,7 ms | 99 % (2713 de 2749) | 1,3 % | 1,13 |
 
 - Con `/process` vacío, el tiempo de respuesta es solo el del servicio: sirve de referencia para los pasos siguientes.
 - Con el procesamiento síncrono, `/process` tarda lo que la IA (1,5–3 s). Las peticiones que no se envían fallan por tres causas, según los logs: la respuesta de la IA no es JSON (30 %: texto alrededor, bloques de Markdown, JSON mal formado o negativas), el JSON no tiene la forma esperada (18 %: claves con otro nombre o campos que faltan), y el proveedor de notificaciones rechaza el envío por límite de peticiones (34 %).
@@ -110,6 +111,7 @@ Resultados del test tras cada paso. Es una ejecución por paso: sirven para ver 
 - En segundo plano, `/process` responde sin esperar a la IA y cada usuario del test completa más peticiones en el mismo tiempo. Los envíos aceptados siguen siendo unos 200, así que el porcentaje baja: el 82 % se rechaza por límite de peticiones. Las enviadas se cuentan cuando termina el procesamiento pendiente, unos segundos después del test.
 - Con la cola, todas las peticiones con una respuesta de la IA utilizable acaban enviadas; solo fallan las negativas. Los envíos salen al ritmo del proveedor, así que la cola tarda unos 8 minutos en vaciarse después del test. Hubo 6 rechazos por límite de peticiones, que se enviaron al reintentarlos.
 - Con el reintento, el 10 % de respuestas no utilizables se pide otra vez y casi todas salen bien a la segunda: solo fallan las que se niegan dos veces seguidas. Cada reintento es una llamada más a la IA.
+- Al dejar de buscar el destinatario en el texto del usuario, las respuestas sin destinatario (un 3 %) también se piden otra vez. Cuesta unas llamadas más a la IA y algunas fallan si el segundo intento tampoco sirve, a cambio de que el destinatario lo extraiga siempre la IA.
 - Los pasos siguientes (tiempos máximos de espera, reintento de errores pasajeros de la IA, prompt y límite de longitud de la entrada) no cambian estas cifras: el mock nunca agota el tiempo ni devuelve errores en la extracción, y no lee el prompt. Se comprobó con una ejecución tras cada uno.
 
 ## Stack
@@ -183,13 +185,12 @@ app/
   1. Se localiza el JSON: dentro de un bloque de Markdown, rodeado de texto o sin cerrar.
   2. Se repara el JSON mal formado de las formas que produce el motor: cortado con `...`, con comillas simples o con claves sin comillas. Las cadenas no se modifican.
   3. Se normalizan los nombres de los campos (`Recipient`, `destination`, `body`, `channel`…) y se descartan los que sobran.
-  4. Si falta el tipo, se deduce del destinatario: un email es `email` y un teléfono, `sms`.
-  5. Si falta el destinatario, se toma del texto del usuario, solo si contiene uno.
-  6. El destinatario tiene que ser un email o un teléfono que aparezca en el texto del usuario, y el tipo tiene que corresponder con él.
+  4. El destinatario tiene que ser un email o un teléfono que aparezca en el texto del usuario. Si falta, la respuesta no sirve: el servicio no lo busca por su cuenta, porque extraerlo es trabajo de la IA.
+  5. Si falta el tipo, se deduce del destinatario, con la misma regla que se le da a la IA: un email es `email` y un teléfono, `sms`. Si viene, tiene que corresponder con el destinatario.
 
   Si algún paso falla, la petición queda en `failed` y el motivo en el log.
 - **La reparación del JSON es propia y cubre los casos conocidos del motor**, con un test por cada tipo de respuesta.
-- **Si la respuesta de la IA no se puede usar, se pide otra vez, una sola vez.** El segundo intento añade al mensaje `system` que la respuesta anterior no sirvió; el texto del usuario se envía igual. No se reintenta cuando el problema está en el texto del usuario (no contiene ningún destinatario, o contiene varios), porque la respuesta sería la misma.
+- **Si la respuesta de la IA no se puede usar, se pide otra vez, una sola vez, diciendo qué falló**: que no era JSON, que faltaba el destinatario o el mensaje, que el destinatario no aparece en el texto o que el tipo no corresponde. La indicación se añade al mensaje `system`; el texto del usuario se envía igual.
 
 ### Resiliencia
 

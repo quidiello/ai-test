@@ -27,11 +27,13 @@ describe('extractNotification retries', () => {
     expect(ai.complete).toHaveBeenCalledTimes(2)
   })
 
-  it('does not retry when the user input has no recipient', async () => {
-    const ai = fakeAi('{"message": "hola", "type": "email"}')
+  it('retries when the AI omits the recipient instead of taking it from the user input', async () => {
+    const ai = fakeAi('{"message": "hola", "type": "email"}', VALID_EXTRACTION)
 
-    await expect(extractNotification(ai, 'Manda un mail diciendo hola')).rejects.toThrow('missing recipient')
-    expect(ai.complete).toHaveBeenCalledTimes(1)
+    const notification = await extractNotification(ai, USER_INPUT)
+
+    expect(notification).toEqual(EXPECTED)
+    expect(ai.complete).toHaveBeenCalledTimes(2)
   })
 
   it('rejects without retrying when the AI reports an error', async () => {
@@ -41,13 +43,22 @@ describe('extractNotification retries', () => {
     expect(ai.complete).toHaveBeenCalledTimes(1)
   })
 
-  it('does not retry when the user input has several recipients', async () => {
-    const ai = fakeAi('{"message": "hola", "type": "email"}')
+  it.each([
+    ['no JSON', REFUSAL, 'not a valid JSON object'],
+    ['no recipient', '{"message": "hola", "type": "email"}', 'had no "to"'],
+    ['a recipient that is not an email or phone', '{"to": "feda", "message": "hola", "type": "email"}', 'was not an email address or a phone number'],
+    ['a recipient not in the message', '{"to": "otro@test.com", "message": "hola", "type": "email"}', 'does not appear in the message'],
+    ['a type that does not match the recipient', '{"to": "feda@test.com", "message": "hola", "type": "sms"}', '"type" did not match the recipient'],
+    ['no message', '{"to": "feda@test.com", "type": "email"}', 'had no "message"'],
+  ])('tells the AI what was wrong on the retry when the answer has %s', async (_case, response, hint) => {
+    const ai = fakeAi(response, VALID_EXTRACTION)
 
-    await expect(extractNotification(ai, 'Manda un mail a feda@test.com y a otro@test.com')).rejects.toThrow(
-      'ambiguous recipient',
-    )
-    expect(ai.complete).toHaveBeenCalledTimes(1)
+    await extractNotification(ai, USER_INPUT)
+
+    const [first] = ai.complete.mock.calls[0]
+    const [retry] = ai.complete.mock.calls[1]
+    expect(first[0].content).not.toContain(hint)
+    expect(retry[0].content).toContain(hint)
   })
 
   it('adds a correction to the system prompt on the retry', async () => {
@@ -100,7 +111,6 @@ describe('extractNotification', () => {
       ['destination, text and method keys', '{"destination": "feda@test.com", "text": "hola", "method": "email"}'],
       ['extra fields', '{"to": "feda@test.com", "message": "hola", "type": "email", "confidence": 0.99, "latency_ms": 120}'],
       ['missing type', '{"to": "feda@test.com", "message": "hola"}'],
-      ['missing recipient', '{"message": "hola", "type": "email"}'],
       ['a json code block', 'He extraído la información correctamente:\n```json\n{"to": "feda@test.com", "message": "hola", "type": "email"}\n```'],
       ['a plain code block', 'Output:\n```\n{"to": "feda@test.com", "message": "hola", "type": "email"}\n```'],
       ['JSON embedded in text', 'Claro, el destino es feda@test.com y enviaré hola por email. En formato JSON: {"to": "feda@test.com", "message": "hola", "type": "email"}'],
@@ -139,12 +149,10 @@ describe('extractNotification', () => {
     await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('recipient not in user input')
   })
 
-  it('rejects a missing recipient when the user input has more than one', async () => {
+  it('rejects a response without a recipient', async () => {
     const ai = fakeAi('{"message": "hola", "type": "email"}')
 
-    await expect(extractNotification(ai, 'Manda un mail a feda@test.com y a otro@test.com')).rejects.toThrow(
-      'ambiguous recipient',
-    )
+    await expect(extractNotification(ai, USER_INPUT)).rejects.toThrow('missing recipient')
   })
 
   it('rejects a type that does not match the recipient', async () => {

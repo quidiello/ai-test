@@ -21,4 +21,14 @@ User: Avisa por SMS al 600-111-222: tu pedido ha salido
 User: Mándale un mensaje a Juan diciendo hola
 {"error": "missing_recipient"}`
 
-export const RETRY_NOTE = `Your previous answer could not be used. Return only the JSON object, with no other text.`
+// Added to the system prompt on the retry, to tell the AI what was wrong with its previous answer.
+export const RETRY_HINTS = {
+  invalidJson: 'Your previous answer was not a valid JSON object. Return only the JSON object, with no other text.',
+  missingRecipient:
+    'Your previous answer had no "to". Copy the recipient\'s email address or phone number exactly as it appears in the message.',
+  invalidRecipient: 'Your previous "to" was not an email address or a phone number.',
+  recipientNotInMessage: 'Your previous "to" does not appear in the message. Copy it exactly as written and never invent one.',
+  typeMismatch:
+    'Your previous "type" did not match the recipient: use "email" for an email address and "sms" for a phone number.',
+  missingMessage: 'Your previous answer had no "message". Include only the content to deliver.',
+}

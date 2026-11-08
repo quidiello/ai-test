@@ -3,13 +3,14 @@ import type { AiClient } from '../provider/ai-client.js'
 import { normalizeFields } from './fields.js'
 import { findJsonCandidate } from './json-candidate.js'
 import { parseLenientJson } from './json-repair.js'
-import { RETRY_NOTE, SYSTEM_PROMPT } from './prompt.js'
-import { channelOf, findRecipients, isMentionedIn } from './recipient.js'
+import { RETRY_HINTS, SYSTEM_PROMPT } from './prompt.js'
+import { channelOf, isMentionedIn } from './recipient.js'
 
 export class ExtractionError extends Error {
+  // The hint tells the AI what to fix on the retry; without one, the error is not retried.
   constructor(
     reason: string,
-    readonly retryable = true,
+    readonly retryHint?: string,
   ) {
     super(`invalid AI response: ${reason}`)
     this.name = 'ExtractionError'
@@ -20,9 +21,9 @@ export async function extractNotification(ai: AiClient, userInput: string): Prom
   try {
     return await extractOnce(ai, SYSTEM_PROMPT, userInput)
   } catch (err) {
-    if (!(err instanceof ExtractionError) || !err.retryable) throw err
+    if (!(err instanceof ExtractionError) || !err.retryHint) throw err
     console.warn(`Retrying extraction: ${err.message}`)
-    return extractOnce(ai, `${SYSTEM_PROMPT}\n\n${RETRY_NOTE}`, userInput)
+    return extractOnce(ai, `${SYSTEM_PROMPT}\n\n${err.retryHint}`, userInput)
   }
 }
 
@@ -37,24 +38,26 @@ async function extractOnce(ai: AiClient, systemPrompt: string, userInput: string
 
 function toNotification(content: string, userInput: string): Notification {
   const candidate = findJsonCandidate(content)
-  if (candidate === undefined) throw new ExtractionError('no JSON found')
+  if (candidate === undefined) throw new ExtractionError('no JSON found', RETRY_HINTS.invalidJson)
 
   const parsed = parseObject(candidate)
-  if (typeof parsed.error === 'string') throw new ExtractionError(`AI reported ${parsed.error}`, false)
+  if (typeof parsed.error === 'string') throw new ExtractionError(`AI reported ${parsed.error}`)
 
   const fields = normalizeFields(parsed)
 
-  const to = fields.to ?? recipientFromUserInput(userInput)
-  const channel = channelOf(to)
-  if (!channel) throw new ExtractionError('recipient is not an email or phone number')
-  if (!isMentionedIn(to, userInput)) throw new ExtractionError('recipient not in user input')
+  if (!fields.to) throw new ExtractionError('missing recipient', RETRY_HINTS.missingRecipient)
+  const channel = channelOf(fields.to)
+  if (!channel) throw new ExtractionError('recipient is not an email or phone number', RETRY_HINTS.invalidRecipient)
+  if (!isMentionedIn(fields.to, userInput)) {
+    throw new ExtractionError('recipient not in user input', RETRY_HINTS.recipientNotInMessage)
+  }
 
   const type = fields.type ?? channel
-  if (type !== channel) throw new ExtractionError('type does not match recipient')
+  if (type !== channel) throw new ExtractionError('type does not match recipient', RETRY_HINTS.typeMismatch)
 
-  if (!fields.message) throw new ExtractionError('missing message')
+  if (!fields.message) throw new ExtractionError('missing message', RETRY_HINTS.missingMessage)
 
-  return { to, message: fields.message, type: channel }
+  return { to: fields.to, message: fields.message, type: channel }
 }
 
 function parseObject(candidate: string): Record<string, unknown> {
@@ -62,18 +65,10 @@ function parseObject(candidate: string): Record<string, unknown> {
   try {
     parsed = parseLenientJson(candidate)
   } catch {
-    throw new ExtractionError('malformed JSON')
+    throw new ExtractionError('malformed JSON', RETRY_HINTS.invalidJson)
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new ExtractionError('JSON is not an object')
+    throw new ExtractionError('JSON is not an object', RETRY_HINTS.invalidJson)
   }
   return parsed as Record<string, unknown>
-}
-
-// The AI response is not trusted to invent a recipient: a missing one is only taken from the user's own words.
-function recipientFromUserInput(userInput: string): string {
-  const recipients = findRecipients(userInput)
-  if (recipients.length === 0) throw new ExtractionError('missing recipient', false)
-  if (recipients.length > 1) throw new ExtractionError('ambiguous recipient', false)
-  return recipients[0]
 }
