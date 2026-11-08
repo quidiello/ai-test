@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAiClient } from '../../src/provider/ai-client.js'
-import { ProviderError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderResponseError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
 import { stubHangingFetch } from '../fakes.js'
 
 const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key', timeoutMs: 1000 }
@@ -51,6 +51,19 @@ describe('AI client', () => {
 
     await expect(call).rejects.toBeInstanceOf(ProviderError)
     await expect(call).rejects.toMatchObject({ status: 401 })
+  })
+
+  it.each([
+    ['a body that is not JSON', new Response('<html>Bad gateway</html>')],
+    ['no choices', Response.json({ choices: [] })],
+    ['a null content', Response.json({ choices: [{ message: { role: 'assistant', content: null } }] })],
+  ])('fails with a response error when the answer has %s', async (_case, response) => {
+    stubFetch(response)
+
+    const call = createAiClient(config).complete([{ role: 'user', content: 'hi' }])
+
+    await expect(call).rejects.toBeInstanceOf(ProviderResponseError)
+    await expect(call).rejects.toThrow('ai/extract returned an unexpected response')
   })
 
   it('fails with a timeout error when the AI does not answer in time', async () => {

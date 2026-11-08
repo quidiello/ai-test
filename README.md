@@ -193,7 +193,7 @@ app/
 
 ### Resiliencia
 
-- **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
+- **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento. El cliente de la IA comprueba además que la respuesta tenga el formato de su API (`choices[0].message.content`); si no lo tiene, falla con un error que lo dice, sin reintentar.
 - **Cada llamada al proveedor tiene un tiempo máximo de espera**, que incluye la lectura de la respuesta: 10 s para la IA, que suele tardar entre 1,5 y 3 s, y 5 s para los envíos. Así una llamada que no responde no deja la petición en `processing` para siempre.
 - **Las llamadas a la IA que fallan por un error pasajero se repiten**: límite de peticiones (429), error del proveedor (5xx), fallo de conexión o tiempo agotado. Cualquier otro error, como una respuesta con un formato inesperado, falla al momento: repetirla daría lo mismo. Hasta 3 intentos, esperando 0,5 s y luego 1 s. Es distinto del reintento por una respuesta que no se puede usar: aquí la llamada falló y se repite igual; allí la llamada funcionó y se pide otra respuesta. En el peor caso, una petición hace 6 llamadas a la IA.
 - **Las notificaciones salen de una cola al ritmo que acepta el proveedor.** El proveedor admite 50 envíos cada 10 s y solo de uno en uno, así que la cola envía uno cada 200 ms (`NOTIFY_RATE_PER_SECOND`). Mientras espera turno, la petición sigue en `processing`.

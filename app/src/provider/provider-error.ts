@@ -29,6 +29,13 @@ export class ProviderTimeoutError extends Error {
   }
 }
 
+export class ProviderResponseError extends Error {
+  constructor(readonly endpoint: string) {
+    super(`${endpoint} returned an unexpected response`)
+    this.name = 'ProviderResponseError'
+  }
+}
+
 export class ProviderNetworkError extends Error {
   constructor(
     readonly endpoint: string,

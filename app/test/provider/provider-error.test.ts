@@ -3,6 +3,7 @@ import {
   isTransientError,
   ProviderError,
   ProviderNetworkError,
+  ProviderResponseError,
   ProviderTimeoutError,
 } from '../../src/provider/provider-error.js'
 
@@ -21,6 +22,10 @@ describe('isTransientError', () => {
 
   it('treats a network error as transient', () => {
     expect(isTransientError(new ProviderNetworkError('notify', new TypeError('fetch failed')))).toBe(true)
+  })
+
+  it('does not treat an unexpected response as transient', () => {
+    expect(isTransientError(new ProviderResponseError('ai/extract'))).toBe(false)
   })
 
   it('does not treat other errors as transient', () => {
