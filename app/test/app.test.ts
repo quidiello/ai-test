@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { app } from '../src/app.js'
+import { createApp } from '../src/app.js'
+import { RequestStore } from '../src/requests/store.js'
 
 describe('GET /health', () => {
   it('responds 200 with status ok', async () => {
+    const app = createApp(new RequestStore())
+
     const res = await app.request('/health')
 
     expect(res.status).toBe(200)
