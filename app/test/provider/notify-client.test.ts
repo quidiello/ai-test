@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createNotifyClient } from '../../src/provider/notify-client.js'
-import { ProviderError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
+import { stubHangingFetch } from '../fakes.js'
 
-const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key' }
+const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key', timeoutMs: 1000 }
 const notification = { to: 'feda@test.com', message: 'hola', type: 'email' as const }
 
 function stubFetch(response: Response) {
@@ -35,5 +36,14 @@ describe('Notify client', () => {
 
     await expect(call).rejects.toBeInstanceOf(ProviderError)
     await expect(call).rejects.toMatchObject({ status: 429 })
+  })
+
+  it('fails with a timeout error when the notify provider does not answer in time', async () => {
+    stubHangingFetch()
+
+    const call = createNotifyClient({ ...config, timeoutMs: 20 }).send(notification)
+
+    await expect(call).rejects.toBeInstanceOf(ProviderTimeoutError)
+    await expect(call).rejects.toThrow('notify timed out after 20 ms')
   })
 })

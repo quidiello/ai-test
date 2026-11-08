@@ -28,3 +28,15 @@ export function failingNotifier(error: Error) {
 }
 
 export const VALID_EXTRACTION = '{"to": "feda@test.com", "message": "hola", "type": "email"}'
+
+// A fetch that never answers on its own: it only settles when the request is aborted.
+export function stubHangingFetch() {
+  const fetchMock = vi.fn(
+    (_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}

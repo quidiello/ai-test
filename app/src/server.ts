@@ -9,10 +9,12 @@ import { RequestStore } from './requests/store.js'
 const port = 5000
 const config = loadConfig()
 
+const notifyClient = createNotifyClient({ ...config.provider, timeoutMs: config.notify.timeoutMs })
+
 const app = createApp({
   store: new RequestStore(),
-  ai: createAiClient(config.provider),
-  notifier: new NotificationDispatcher(createNotifyClient(config.provider), config.notify),
+  ai: createAiClient({ ...config.provider, timeoutMs: config.ai.timeoutMs }),
+  notifier: new NotificationDispatcher(notifyClient, config.notify),
 })
 
 serve({ fetch: app.fetch, port }, (info) => {

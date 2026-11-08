@@ -86,6 +86,8 @@ Por variables de entorno, en [app/.env](app/.env). `npm run dev`, `npm start` y 
 | ------------------------ | ----------------------------------------------------- |
 | `PROVIDER_URL`           | URL del motor de IA y del proveedor de notificaciones |
 | `PROVIDER_API_KEY`       | API key del proveedor                                 |
+| `AI_TIMEOUT_MS`          | Tiempo máximo de espera de cada llamada a la IA       |
+| `NOTIFY_TIMEOUT_MS`      | Tiempo máximo de espera de cada envío                 |
 | `NOTIFY_RATE_PER_SECOND` | Envíos por segundo al proveedor de notificaciones     |
 
 > **El `.env` está en el repositorio a propósito**, para que el servicio funcione sin pasos previos y con el `docker-compose.yaml` del enunciado sin modificarlo. Solo contiene la API key del entorno de pruebas que da el enunciado. En un proyecto real no se versionaría ni se incluiría en la imagen: las variables se pasarían al desplegar y la key vendría de un gestor de secretos.
@@ -107,7 +109,7 @@ app/
   src/extraction/recipient.ts         reconoce emails y teléfonos
   src/notifications/notification.ts   tipo de la notificación
   src/notifications/dispatcher.ts     cola de envíos con límite de ritmo y reintentos
-  src/provider/                       clientes HTTP del motor de IA y de notificaciones
+  src/provider/                       clientes HTTP del motor de IA y de notificaciones, con su tiempo máximo de espera
   test/                               tests
 ```
 
@@ -129,6 +131,7 @@ app/
 - **`/process` responde 202 y el procesamiento sigue en segundo plano.** La IA tarda segundos en responder; el estado se consulta con `GET /v1/requests/{id}`.
 - **Una petición solo se procesa una vez.** `/process` solo la pone en marcha si está en `queued`; si no, devuelve su estado actual. Así una llamada repetida no envía la notificación dos veces.
 - **Los clientes del proveedor solo traducen HTTP.** Una respuesta que no es 2xx se convierte en un `ProviderError` con el endpoint y el código; qué hacer con ella lo decide el procesamiento.
+- **Cada llamada al proveedor tiene un tiempo máximo de espera**: 10 s para la IA, que suele tardar entre 1,5 y 3 s, y 5 s para los envíos. Así una llamada que no responde no deja la petición en `processing` para siempre. Un envío que agota el tiempo se reintenta como cualquier otro error pasajero.
 - **Las notificaciones salen de una cola al ritmo que acepta el proveedor.** El proveedor admite 50 envíos cada 10 s y solo de uno en uno, así que la cola envía uno cada 200 ms (`NOTIFY_RATE_PER_SECOND`). Mientras espera turno, la petición sigue en `processing`.
 - **Los envíos rechazados se reintentan si el error puede ser pasajero:** límite de peticiones (429), error del proveedor (5xx) o fallo de conexión. Cada intento espera el doble que el anterior, con una parte aleatoria para que los reintentos no lleguen todos a la vez, y pasa por delante de los que esperan. Tras 5 intentos, o con cualquier otro error, la petición queda en `failed`.
 - **La respuesta de la IA se limpia y se valida antes de enviar nada**, en pasos separados que se prueban por separado:

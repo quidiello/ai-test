@@ -1,5 +1,5 @@
-import type { ProviderConfig } from '../config.js'
-import { ProviderError } from './provider-error.js'
+import type { ClientConfig } from '../config.js'
+import { providerPost } from './provider-post.js'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -14,16 +14,10 @@ interface ChatCompletion {
   choices: { message: { content: string } }[]
 }
 
-export function createAiClient({ baseUrl, apiKey }: ProviderConfig): AiClient {
+export function createAiClient(config: ClientConfig): AiClient {
   return {
     async complete(messages) {
-      const res = await fetch(`${baseUrl}/v1/ai/extract`, {
-        method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
-      })
-      if (!res.ok) throw new ProviderError('ai/extract', res.status)
-
+      const res = await providerPost(config, 'ai/extract', { messages })
       const completion = (await res.json()) as ChatCompletion
       return completion.choices[0].message.content
     },

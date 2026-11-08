@@ -5,9 +5,14 @@ export interface ProviderConfig {
   apiKey: string
 }
 
+export interface ClientConfig extends ProviderConfig {
+  timeoutMs: number
+}
+
 export interface Config {
   provider: ProviderConfig
-  notify: DispatcherOptions
+  ai: { timeoutMs: number }
+  notify: DispatcherOptions & { timeoutMs: number }
 }
 
 export function loadConfig(): Config {
@@ -16,7 +21,11 @@ export function loadConfig(): Config {
       baseUrl: requiredEnv('PROVIDER_URL'),
       apiKey: requiredEnv('PROVIDER_API_KEY'),
     },
+    ai: {
+      timeoutMs: positiveNumberEnv('AI_TIMEOUT_MS'),
+    },
     notify: {
+      timeoutMs: positiveNumberEnv('NOTIFY_TIMEOUT_MS'),
       ratePerSecond: positiveNumberEnv('NOTIFY_RATE_PER_SECOND'),
       maxAttempts: 5,
       retryBaseDelayMs: 1000,

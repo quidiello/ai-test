@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAiClient } from '../../src/provider/ai-client.js'
-import { ProviderError } from '../../src/provider/provider-error.js'
+import { ProviderError, ProviderTimeoutError } from '../../src/provider/provider-error.js'
+import { stubHangingFetch } from '../fakes.js'
 
-const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key' }
+const config = { baseUrl: 'http://provider.test', apiKey: 'secret-key', timeoutMs: 1000 }
 
 function stubFetch(response: Response) {
   const fetchMock = vi.fn().mockResolvedValue(response)
@@ -50,5 +51,14 @@ describe('AI client', () => {
 
     await expect(call).rejects.toBeInstanceOf(ProviderError)
     await expect(call).rejects.toMatchObject({ status: 401 })
+  })
+
+  it('fails with a timeout error when the AI does not answer in time', async () => {
+    stubHangingFetch()
+
+    const call = createAiClient({ ...config, timeoutMs: 20 }).complete([{ role: 'user', content: 'hi' }])
+
+    await expect(call).rejects.toBeInstanceOf(ProviderTimeoutError)
+    await expect(call).rejects.toThrow('ai/extract timed out after 20 ms')
   })
 })

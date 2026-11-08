@@ -1,20 +1,15 @@
+import type { ClientConfig } from '../config.js'
 import type { Notification } from '../notifications/notification.js'
-import type { ProviderConfig } from '../config.js'
-import { ProviderError } from './provider-error.js'
+import { providerPost } from './provider-post.js'
 
 export interface NotifyClient {
   send(notification: Notification): Promise<void>
 }
 
-export function createNotifyClient({ baseUrl, apiKey }: ProviderConfig): NotifyClient {
+export function createNotifyClient(config: ClientConfig): NotifyClient {
   return {
     async send(notification) {
-      const res = await fetch(`${baseUrl}/v1/notify`, {
-        method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify(notification),
-      })
-      if (!res.ok) throw new ProviderError('notify', res.status)
+      await providerPost(config, 'notify', notification)
     },
   }
 }

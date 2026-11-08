@@ -7,3 +7,13 @@ export class ProviderError extends Error {
     this.name = 'ProviderError'
   }
 }
+
+export class ProviderTimeoutError extends Error {
+  constructor(
+    readonly endpoint: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`${endpoint} timed out after ${timeoutMs} ms`)
+    this.name = 'ProviderTimeoutError'
+  }
+}
