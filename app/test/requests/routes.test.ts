@@ -68,6 +68,19 @@ describe('POST /v1/requests', () => {
     expect(res.status).toBe(422)
   })
 
+  it('rejects a user_input longer than 1000 characters with 422', async () => {
+    const res = await postJson('/v1/requests', { user_input: 'a'.repeat(1001) })
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: expect.stringContaining('1000') })
+  })
+
+  it('accepts a user_input of exactly 1000 characters', async () => {
+    const res = await postJson('/v1/requests', { user_input: 'a'.repeat(1000) })
+
+    expect(res.status).toBe(201)
+  })
+
   it('rejects a malformed JSON body with 400', async () => {
     const res = await postJson('/v1/requests', '{"user_input": ')
 

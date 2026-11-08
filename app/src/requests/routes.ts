@@ -3,8 +3,10 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { startProcessing, type ProcessDeps } from './process-request.js'
 
+const MAX_USER_INPUT_LENGTH = 1000
+
 const createRequestSchema = z.object({
-  user_input: z.string().trim().min(1),
+  user_input: z.string().trim().min(1).max(MAX_USER_INPUT_LENGTH),
 })
 
 export function requestRoutes(deps: ProcessDeps) {
@@ -15,7 +17,7 @@ export function requestRoutes(deps: ProcessDeps) {
     '/',
     zValidator('json', createRequestSchema, (result, c) => {
       if (!result.success) {
-        return c.json({ error: 'user_input must be a non-empty string' }, 422)
+        return c.json({ error: `user_input must be a non-empty string of at most ${MAX_USER_INPUT_LENGTH} characters` }, 422)
       }
     }),
     (c) => {
