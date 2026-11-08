@@ -207,6 +207,7 @@ app/
 ## Mejoras posibles
 
 - **Cola persistente y con tamaño máximo.** Ahora vive en memoria: si el servicio se reinicia, las notificaciones pendientes se pierden, y con tráfico sostenido por encima de lo que acepta el proveedor crece sin límite. Con una cola externa (por ejemplo, Redis o un broker de mensajes) sobreviviría a reinicios y se podrían rechazar peticiones nuevas al llenarse.
+- **Peticiones guardadas con caducidad.** Las peticiones terminadas se quedan en memoria mientras el servicio está en marcha. Guardadas en una base de datos que borre las antiguas (por ejemplo, Redis con caducidad), la memoria no crecería con el tiempo.
 - **Apagado ordenado:** al parar el servicio, terminar de enviar lo que hay en cola antes de salir.
 - **Métricas** de peticiones por estado, motivos de fallo y reintentos. Ahora esas cifras se obtienen contando líneas en los logs.
 - **Envío en bloque** si el proveedor lo ofreciera y su límite contara llamadas, para enviar más notificaciones por segundo.
